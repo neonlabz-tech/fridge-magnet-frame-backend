@@ -9,12 +9,15 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CustomerModule } from './customer/customer.module';
+import { ProductsModule } from './products/products.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 
 const logger = new Logger('MongoDB');
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+
     MongooseModule.forRoot(process.env.MONGODB_URI as string, {
       connectionFactory: (connection) => {
         connection.on('connected', () => {
@@ -26,9 +29,14 @@ const logger = new Logger('MongoDB');
         return connection;
       },
     }),
+
     AuthModule,
     UsersModule,
     CustomerModule,
+
+    // 👉 unga modules add pannom
+    ProductsModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
