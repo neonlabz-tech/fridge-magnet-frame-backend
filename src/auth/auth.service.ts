@@ -62,7 +62,9 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) {
       // Always return success to prevent email enumeration
-      return { message: 'If that email exists, a reset link has been sent.' };
+      return {
+        message: 'If that email exists, a reset link has been sent.',
+      };
     }
     
     // Generate a plain token (not hashed) for email
@@ -82,7 +84,7 @@ export class AuthService {
     
     // In production, you would send an email with the plain token
     // For testing, we return the plain token
-    return { 
+    return {
       message: 'If that email exists, a reset link has been sent.',
       resetToken // Remove this in production
     };

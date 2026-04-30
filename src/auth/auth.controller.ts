@@ -1,8 +1,7 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 
@@ -16,16 +15,19 @@ export class AuthController {
 	}
 
 	@Post('login')
+	@HttpCode(200)
 	async login(@Body() loginDto: LoginDto) {
 		return this.authService.login(loginDto);
 	}
 
 	@Post('forgot-password')
+	@HttpCode(200)
 	async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
 		return this.authService.forgotPassword(forgotPasswordDto);
 	}
 
 	@Post('reset-password')
+	@HttpCode(200)
 	async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
 		return this.authService.resetPassword(resetPasswordDto);
 	}
