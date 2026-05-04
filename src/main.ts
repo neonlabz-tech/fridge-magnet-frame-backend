@@ -1,21 +1,24 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
-  // Enable global validation
+
+  // CORS (frontend connect)
+  app.enableCors({
+    origin: 'http://localhost:3000',
+  });
+
+  // Global validation
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
-    })
+    }),
   );
-  
-  app.use(new LoggingMiddleware().use);
-  await app.listen(process.env.PORT ?? 3000);
+
+  await app.listen(process.env.PORT ?? 5000);
 }
 bootstrap();

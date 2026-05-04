@@ -16,8 +16,22 @@ export class OrdersService {
     return this.orderModel.create(dto);
   }
 
-  findAll() {
-    return this.orderModel.find().sort({ createdAt: -1 });
+  findAll(status?: string, search?: string) {
+    const filter: any = {};
+
+    if (status && status !== 'ALL') {
+      filter.status = status;
+    }
+
+    if (search) {
+      filter.$or = [
+        { orderId: { $regex: search, $options: 'i' } },
+        { customerName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    return this.orderModel.find(filter).sort({ createdAt: -1 });
   }
 
   async findOne(id: string) {
