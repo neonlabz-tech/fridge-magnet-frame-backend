@@ -15,15 +15,17 @@ const logger = new Logger('MongoDB');
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    MongooseModule.forRoot(process.env.MONGODB_URI as string, {
-      connectionFactory: (connection) => {
-        connection.on('connected', () => {
-          logger.log('✅ MongoDB connected successfully');
-        });
-        connection.on('error', (error: Error) => {
-          logger.error(`❌ MongoDB connection error: ${error.message}`);
-        });
-        return connection;
+    MongooseModule.forRootAsync({
+      useFactory: () => {
+        const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/magnify_db';
+
+        logger.log(`Using MongoDB URI: ${mongoUri.replace(/:\/\/[^:]+:[^@]+@/, '://***:***@')}`);
+
+        return {
+          uri: mongoUri,
+          lazyConnection: true,
+          serverSelectionTimeoutMS: 1000,
+        };
       },
     }),
     AuthModule,

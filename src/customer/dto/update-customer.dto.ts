@@ -1,5 +1,4 @@
 import {
-  IsEmail,
   IsOptional,
   IsString,
   Matches,
@@ -15,13 +14,16 @@ export class UpdateCustomerDto {
   customerName?: string;
 
   @IsOptional()
-  @IsEmail()
+  @Matches(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|net|org)$/, {
+    message:
+      'Email should be in a valid format like user@example.com and use a .com, .net, or .org domain',
+  })
   emailAddress?: string;
 
   @IsOptional()
   @IsString()
-  @Matches(/^\+?[\d\s\-().]{7,20}$/, {
-    message: 'phoneNumber must be a valid phone number',
+  @Matches(/^\d{10}$/, {
+    message: 'Phone number must contain exactly 10 digits',
   })
   phoneNumber?: string;
 

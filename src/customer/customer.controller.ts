@@ -21,7 +21,16 @@ export class CustomerController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() createCustomerDto: CreateCustomerDto) {
-    const customer = await this.customerService.create(createCustomerDto);
+    const normalizedCreateCustomerDto: CreateCustomerDto = {
+      ...createCustomerDto,
+      customerName: createCustomerDto.customerName ?? createCustomerDto.name!,
+      emailAddress: createCustomerDto.emailAddress ?? createCustomerDto.email!,
+      phoneNumber: createCustomerDto.phoneNumber ?? createCustomerDto.phone!,
+      customerAddress:
+        createCustomerDto.customerAddress ?? createCustomerDto.address!,
+    };
+
+    const customer = await this.customerService.create(normalizedCreateCustomerDto);
     return {
       statusCode: HttpStatus.CREATED,
       message: 'Customer created successfully',
