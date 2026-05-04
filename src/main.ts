@@ -1,24 +1,32 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
 
-  // CORS (frontend connect)
+  app.setGlobalPrefix('api/v1');
+
   app.enableCors({
     origin: 'http://localhost:3000',
   });
 
-  // Global validation
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      transform: true,
       forbidNonWhitelisted: true,
+      transform: true,
     }),
   );
 
-  await app.listen(process.env.PORT ?? 5000);
+  app.useGlobalFilters(new AllExceptionsFilter());
+
+  const port = process.env.PORT || 5000;
+  await app.listen(port);
+
+  logger.log(`🚀 Magnify Admin API running on http://localhost:${port}/api/v1`);
 }
+
 bootstrap();
