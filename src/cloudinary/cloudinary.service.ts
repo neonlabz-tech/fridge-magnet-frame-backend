@@ -17,7 +17,8 @@ export class CloudinaryService {
         throw new BadRequestException('No file provided');
       }
 
-      return new Promise((resolve, reject) => {
+      return new Promise<{ secure_url: string; public_id: string }>(
+        (resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
             folder: folder,
@@ -26,6 +27,8 @@ export class CloudinaryService {
           (error, result) => {
             if (error) {
               reject(new BadRequestException(`Upload failed: ${error.message}`));
+            } else if (!result) {
+              reject(new BadRequestException('Upload failed: no result returned'));
             } else {
               resolve({
                 secure_url: result.secure_url,
@@ -36,7 +39,8 @@ export class CloudinaryService {
         );
 
         uploadStream.end(file.buffer);
-      });
+      },
+      );
     } catch (error) {
       throw new BadRequestException(`Cloudinary upload error: ${error.message}`);
     }
