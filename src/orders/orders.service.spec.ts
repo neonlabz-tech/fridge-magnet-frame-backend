@@ -1,51 +1,52 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
-import { Order, OrderDocument } from './schemas/order.schema';
+import { Test, TestingModule } from '@nestjs/testing';
+import { OrdersService } from './orders.service';
+import { getModelToken } from '@nestjs/mongoose';
+import { NotFoundException } from '@nestjs/common';
 
-@Injectable()
-export class OrdersService {
-  constructor(
-    @InjectModel(Order.name)
-    private orderModel: Model<OrderDocument>,
-  ) {}
+const mockOrderModel = {
+  create: jest.fn(),
+  find: jest.fn().mockReturnThis(),
+  sort: jest.fn().mockReturnThis(),
+  exec: jest.fn(),
+  findById: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
+  findByIdAndDelete: jest.fn(),
+};
 
-  create(dto: CreateOrderDto) {
-    return this.orderModel.create(dto);
-  }
+describe('OrdersService', () => {
+  let service: OrdersService;
 
-  findAll() {
-    return this.orderModel.find().sort({ createdAt: -1 });
-  }
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        OrdersService,
+        {
+          provide: getModelToken('Order'),
+          useValue: mockOrderModel,
+        },
+      ],
+    }).compile();
 
-  async findOne(id: string) {
-    const order = await this.orderModel.findById(id);
-    if (!order) throw new NotFoundException('Order not found');
-    return order;
-  }
+    service = module.get<OrdersService>(OrdersService);
+  });
 
-  async updateStatus(id: string, dto: UpdateOrderStatusDto) {
-    const order = await this.orderModel.findByIdAndUpdate(
-      id,
-      {
-        status: dto.status,
-        adminNote: dto.adminNote,
-      },
-      { new: true },
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
+  it('should create order', async () => {
+    mockOrderModel.create.mockResolvedValue({ id: 1 });
+
+    const result = await service.create({} as any);
+
+    expect(mockOrderModel.create).toHaveBeenCalled();
+  });
+
+  it('should throw if order not found', async () => {
+    mockOrderModel.findById.mockResolvedValue(null);
+
+    await expect(service.findOne('123')).rejects.toThrow(
+      NotFoundException,
     );
-
-    if (!order) throw new NotFoundException('Order not found');
-    return order;
-  }
-
-  async delete(id: string) {
-    const order = await this.orderModel.findByIdAndDelete(id);
-    if (!order) throw new NotFoundException('Order not found');
-
-    return {
-      message: 'Order deleted successfully',
-    };
-  }
-}
+  });
+});
