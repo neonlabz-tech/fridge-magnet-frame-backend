@@ -11,10 +11,22 @@ export class Customer {
   @Prop({ type: String, required: true, minlength: 2, maxlength: 100 })
   customerName: string;
 
-  @Prop({ type: String, required: true, unique: true, lowercase: true })
+  @Prop({
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: [/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|net|org)$/, 'Please fill a valid email address'],
+  })
   emailAddress: string;
 
-  @Prop({ type: String, required: true })
+  @Prop({
+    type: String,
+    required: true,
+    trim: true,
+    match: [/^\d{10}$/, 'Please fill a valid phone number'],
+  })
   phoneNumber: string;
 
   @Prop({ type: String, required: true, minlength: 5, maxlength: 255 })
