@@ -9,28 +9,34 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CustomerModule } from './customer/customer.module';
+import { ProductsModule } from './products/products.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 
 const logger = new Logger('MongoDB');
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    MongooseModule.forRootAsync({
-      useFactory: () => {
-        const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/magnify_db';
 
-        logger.log(`Using MongoDB URI: ${mongoUri.replace(/:\/\/[^:]+:[^@]+@/, '://***:***@')}`);
-
-        return {
-          uri: mongoUri,
-          lazyConnection: true,
-          serverSelectionTimeoutMS: 1000,
-        };
+    MongooseModule.forRoot(process.env.MONGODB_URI as string, {
+      connectionFactory: (connection) => {
+        connection.on('connected', () => {
+          logger.log('✅ MongoDB connected successfully');
+        });
+        connection.on('error', (error: Error) => {
+          logger.error(`❌ MongoDB connection error: ${error.message}`);
+        });
+        return connection;
       },
     }),
+
     AuthModule,
     UsersModule,
     CustomerModule,
+
+    // 👉 unga modules add pannom
+    ProductsModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -17,7 +17,7 @@ export class Customer {
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Please fill a valid email address'],
+    match: [/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|net|org)$/, 'Please fill a valid email address'],
   })
   emailAddress: string;
 
@@ -25,7 +25,7 @@ export class Customer {
     type: String,
     required: true,
     trim: true,
-    match: [/^\+?[\d\s\-().]{7,20}$/, 'Please fill a valid phone number'],
+    match: [/^\d{10}$/, 'Please fill a valid phone number'],
   })
   phoneNumber: string;
 
