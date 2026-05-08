@@ -43,10 +43,12 @@ export class Product {
     },
     default: null,
   })
-  primaryImage: {
-    secure_url: string;
-    public_id: string;
-  };
+  primaryImage:
+    | {
+        secure_url: string;
+        public_id: string;
+      }
+    | null;
 
   @Prop({
     type: [
