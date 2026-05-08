@@ -9,7 +9,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
-  app.enableCors();
+  app.enableCors({
+    origin: 'http://localhost:3000',
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -21,7 +23,7 @@ async function bootstrap() {
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 5000;
   await app.listen(port);
 
   logger.log(`🚀 Magnify Admin API running on http://localhost:${port}/api/v1`);
