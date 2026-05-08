@@ -1,5 +1,4 @@
 import {
-  IsEmail,
   IsNotEmpty,
   IsString,
   Matches,
@@ -12,22 +11,25 @@ export class CreateCustomerDto {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
-  customerName: string;
+  customerName!: string;
 
-  @IsEmail()
+  @Matches(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|net|org)$/, {
+    message:
+      'Email should be in a valid format like user@example.com and use a .com, .net, or .org domain',
+  })
   @IsNotEmpty()
-  emailAddress: string;
+  emailAddress!: string;
 
   @IsString()
   @IsNotEmpty()
-  @Matches(/^\+?[\d\s\-().]{7,20}$/, {
-    message: 'phoneNumber must be a valid phone number',
+  @Matches(/^\d{10}$/, {
+    message: 'Phone number must contain exactly 10 digits',
   })
-  phoneNumber: string;
+  phoneNumber!: string;
 
   @IsString()
   @IsNotEmpty()
   @MinLength(5)
   @MaxLength(255)
-  customerAddress: string;
+  customerAddress!: string;
 }
