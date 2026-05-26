@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
@@ -8,6 +8,8 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
     private cloudinaryService: CloudinaryService,
@@ -285,7 +287,15 @@ export class ProductsService {
       }
 
       if (imagePublicIds.length > 0) {
-        await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
+        try {
+          await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
+        } catch (error) {
+          this.logger.warn(
+            `Product ${id} deleted from database, but image cleanup failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       }
 
       // Delete product from database
