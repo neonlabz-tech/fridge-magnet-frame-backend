@@ -30,33 +30,39 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto) {
-    const order = await this.orderModel.create(dto);
+  if (dto.items?.length) {
+    for (const item of dto.items) {
+      if (!item.productId) continue;
 
-    if (dto.items?.length) {
-      await Promise.all(
-        dto.items.map(async (item) => {
-          if (!item.productId) return;
+      const quantity = Math.max(Number(item.quantity || 0), 0);
+      if (quantity === 0) continue;
 
-          const quantity = Math.max(Number(item.quantity || 0), 0);
-          if (quantity === 0) return;
+      const product = Types.ObjectId.isValid(item.productId)
+        ? await this.productModel.findById(item.productId)
+        : await this.productModel.findOne({ productId: item.productId });
 
-          const product = Types.ObjectId.isValid(item.productId)
-            ? await this.productModel.findById(item.productId)
-            : await this.productModel.findOne({ productId: item.productId });
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
 
-          if (!product) return;
+      if (Number(product.stock || 0) < quantity) {
+        throw new BadRequestException(
+          `${product.productName} stock not available`,
+        );
+      }
 
-          const nextStock = Math.max(Number(product.stock || 0) - quantity, 0);
-          product.stock = nextStock;
-          product.status = this.getStatusFromStock(nextStock);
-          product.updatedAt = new Date();
-          await product.save();
-        }),
-      );
+      product.stock = Number(product.stock || 0) - quantity;
+      product.status = this.getStatusFromStock(product.stock);
+      product.updatedAt = new Date();
+
+      await product.save();
     }
-
-    return order;
   }
+
+  const order = await this.orderModel.create(dto);
+  return order;
+}
+  
 
   findAll(status?: string, search?: string) {
     const filter: any = {};
