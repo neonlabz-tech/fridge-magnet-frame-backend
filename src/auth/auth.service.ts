@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
+import { CustomerService } from '../customer/customer.service';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -13,6 +14,7 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private customerService: CustomerService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -30,11 +32,18 @@ export class AuthService {
     if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    if (user.role === 'user') {
+      await this.customerService.ensureForRegisteredUser({
+        email: user.email,
+        fullName: user.fullName,
+      });
+    }
     const payload = { email: user.email, sub: user._id.toString(), role: user.role };
     return {
       access_token: this.jwtService.sign(payload),
       user: {
         id: user._id,
+        fullName: user.fullName,
         email: user.email,
         role: user.role
       }
@@ -46,12 +55,22 @@ export class AuthService {
     if (existingUser) {
       throw new ConflictException('Email already registered');
     }
-    const user = await this.usersService.create(registerDto.email, registerDto.password);
+    const user = await this.usersService.create(
+      registerDto.email,
+      registerDto.password,
+      'user',
+      registerDto.fullName,
+    );
+    await this.customerService.ensureForRegisteredUser({
+      email: user.email,
+      fullName: registerDto.fullName,
+    });
     const payload = { email: user.email, sub: user._id.toString(), role: user.role };
     return {
       access_token: this.jwtService.sign(payload),
       user: {
         id: user._id,
+        fullName: user.fullName,
         email: user.email,
         role: user.role
       }

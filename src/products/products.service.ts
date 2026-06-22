@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
@@ -8,10 +13,20 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
     private cloudinaryService: CloudinaryService,
   ) {}
+
+  private getStockStatus(
+    stock: number,
+  ): 'In Stock' | 'Low Stock' | 'Out of Stock' {
+    if (stock > 10) return 'In Stock';
+    if (stock > 4) return 'Low Stock';
+    return 'Out of Stock';
+  }
 
   async create(
     createProductDto: CreateProductDto,
@@ -19,49 +34,37 @@ export class ProductsService {
     galleryImageFiles?: Express.Multer.File[],
   ) {
     try {
-      // Check if product with same SKU already exists
       const existingProduct = await this.productModel.findOne({
         productId: createProductDto.productId,
       });
 
       if (existingProduct) {
-        throw new BadRequestException(
-          'Product with this SKU already exists',
-        );
+        throw new BadRequestException('Product with this SKU already exists');
       }
 
       const productData: any = { ...createProductDto };
 
-      // Upload primary image
+      productData.stock = Number(productData.stock) || 0;
+      productData.price = Number(productData.price) || 0;
+      productData.status = this.getStockStatus(productData.stock);
+
       if (primaryImageFile) {
-        const primaryImage = await this.cloudinaryService.uploadImage(
+        productData.primaryImage = await this.cloudinaryService.uploadImage(
           primaryImageFile,
           'products/primary',
         );
-        productData.primaryImage = primaryImage;
       }
 
-      // Upload gallery images
       if (galleryImageFiles && galleryImageFiles.length > 0) {
-        const galleryImages = await this.cloudinaryService.uploadMultipleImages(
-          galleryImageFiles,
-          'products/gallery',
-        );
-        productData.galleryImages = galleryImages;
-      }
-
-      // Determine status based on stock
-      if (!productData.status) {
-        if (productData.stock > 10) {
-          productData.status = 'In Stock';
-        } else if (productData.stock > 0) {
-          productData.status = 'Low Stock';
-        } else {
-          productData.status = 'Out of Stock';
-        }
+        productData.galleryImages =
+          await this.cloudinaryService.uploadMultipleImages(
+            galleryImageFiles,
+            'products/gallery',
+          );
       }
 
       const product = await this.productModel.create(productData);
+
       return {
         success: true,
         message: 'Product created successfully',
@@ -82,10 +85,34 @@ export class ProductsService {
     maxPrice?: number,
   ) {
     try {
+      await this.productModel.updateMany(
+        {},
+        [
+          {
+            $set: {
+              status: {
+                $switch: {
+                  branches: [
+                    {
+                      case: { $gt: ['$stock', 10] },
+                      then: 'In Stock',
+                    },
+                    {
+                      case: { $gt: ['$stock', 4] },
+                      then: 'Low Stock',
+                    },
+                  ],
+                  default: 'Out of Stock',
+                },
+              },
+            },
+          },
+        ],
+      );
+
       const skip = (page - 1) * limit;
       const filters: any = {};
 
-      // Search filter for productName or SKU
       if (search) {
         filters.$or = [
           { productName: { $regex: search, $options: 'i' } },
@@ -93,25 +120,13 @@ export class ProductsService {
         ];
       }
 
-      // Category filter
-      if (category) {
-        filters.category = category;
-      }
+      if (category) filters.category = category;
+      if (status) filters.status = status;
 
-      // Status filter
-      if (status) {
-        filters.status = status;
-      }
-
-      // Price range filter
       if (minPrice !== undefined || maxPrice !== undefined) {
         filters.price = {};
-        if (minPrice !== undefined) {
-          filters.price.$gte = minPrice;
-        }
-        if (maxPrice !== undefined) {
-          filters.price.$lte = maxPrice;
-        }
+        if (minPrice !== undefined) filters.price.$gte = minPrice;
+        if (maxPrice !== undefined) filters.price.$lte = maxPrice;
       }
 
       const products = await this.productModel
@@ -155,9 +170,7 @@ export class ProductsService {
         data: product,
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
+      if (error instanceof NotFoundException) throw error;
       throw new BadRequestException(error.message);
     }
   }
@@ -175,7 +188,6 @@ export class ProductsService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      // Check if updating SKU and if new SKU already exists
       if (
         updateProductDto.productId &&
         updateProductDto.productId !== product.productId
@@ -185,58 +197,43 @@ export class ProductsService {
         });
 
         if (existingProduct) {
-          throw new BadRequestException(
-            'Product with this SKU already exists',
-          );
+          throw new BadRequestException('Product with this SKU already exists');
         }
       }
 
       const updateData: any = { ...updateProductDto };
 
-      // Handle primary image update
+      if (updateData.stock !== undefined) {
+        updateData.stock = Number(updateData.stock) || 0;
+        updateData.status = this.getStockStatus(updateData.stock);
+      }
+
+      if (updateData.price !== undefined) {
+        updateData.price = Number(updateData.price) || 0;
+      }
+
       if (primaryImageFile) {
-        // Delete old primary image if exists
-        if (product.primaryImage && product.primaryImage.public_id) {
-          await this.cloudinaryService.deleteImage(
-            product.primaryImage.public_id,
-          );
+        if (product.primaryImage?.public_id) {
+          await this.cloudinaryService.deleteImage(product.primaryImage.public_id);
         }
 
-        // Upload new primary image
-        const newPrimaryImage = await this.cloudinaryService.uploadImage(
+        updateData.primaryImage = await this.cloudinaryService.uploadImage(
           primaryImageFile,
           'products/primary',
         );
-        updateData.primaryImage = newPrimaryImage;
       }
 
-      // Handle gallery images update
       if (galleryImageFiles && galleryImageFiles.length > 0) {
-        // Delete old gallery images if exists
         if (product.galleryImages && product.galleryImages.length > 0) {
           const publicIds = product.galleryImages.map((img) => img.public_id);
           await this.cloudinaryService.deleteMultipleImages(publicIds);
         }
 
-        // Upload new gallery images
-        const newGalleryImages = await this.cloudinaryService.uploadMultipleImages(
-          galleryImageFiles,
-          'products/gallery',
-        );
-        updateData.galleryImages = newGalleryImages;
-      }
-
-      // Auto-update status based on stock if stock is updated
-      if (updateData.stock !== undefined) {
-        if (!updateData.status) {
-          if (updateData.stock > 10) {
-            updateData.status = 'In Stock';
-          } else if (updateData.stock > 0) {
-            updateData.status = 'Low Stock';
-          } else {
-            updateData.status = 'Out of Stock';
-          }
-        }
+        updateData.galleryImages =
+          await this.cloudinaryService.uploadMultipleImages(
+            galleryImageFiles,
+            'products/gallery',
+          );
       }
 
       updateData.updatedAt = new Date();
@@ -263,6 +260,32 @@ export class ProductsService {
     }
   }
 
+  async reduceStock(productId: string, quantity: number) {
+    const product = await this.productModel.findById(productId).exec();
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const orderQuantity = Number(quantity) || 0;
+
+    if (orderQuantity <= 0) {
+      throw new BadRequestException('Invalid quantity');
+    }
+
+    if (product.stock < orderQuantity) {
+      throw new BadRequestException('Not enough stock available');
+    }
+
+    product.stock = product.stock - orderQuantity;
+    product.status = this.getStockStatus(product.stock);
+    product.updatedAt = new Date();
+
+    await product.save();
+
+    return product;
+  }
+
   async delete(id: string) {
     try {
       const product = await this.productModel.findById(id).exec();
@@ -271,10 +294,9 @@ export class ProductsService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      // Delete images from Cloudinary
       const imagePublicIds: string[] = [];
 
-      if (product.primaryImage && product.primaryImage.public_id) {
+      if (product.primaryImage?.public_id) {
         imagePublicIds.push(product.primaryImage.public_id);
       }
 
@@ -285,10 +307,17 @@ export class ProductsService {
       }
 
       if (imagePublicIds.length > 0) {
-        await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
+        try {
+          await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
+        } catch (error) {
+          this.logger.warn(
+            `Product ${id} deleted from database, but image cleanup failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       }
 
-      // Delete product from database
       await this.productModel.findByIdAndDelete(id).exec();
 
       return {
@@ -297,9 +326,7 @@ export class ProductsService {
         data: { deletedId: id },
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
+      if (error instanceof NotFoundException) throw error;
       throw new BadRequestException(error.message);
     }
   }
@@ -309,19 +336,12 @@ export class ProductsService {
       const product = await this.productModel.findById(productId).exec();
 
       if (!product) {
-        throw new NotFoundException(
-          `Product with ID ${productId} not found`,
-        );
+        throw new NotFoundException(`Product with ID ${productId} not found`);
       }
 
-      // Delete from Cloudinary
       await this.cloudinaryService.deleteImage(publicId);
 
-      // Remove from MongoDB
-      if (
-        product.primaryImage &&
-        product.primaryImage.public_id === publicId
-      ) {
+      if (product.primaryImage?.public_id === publicId) {
         product.primaryImage = null;
       } else if (product.galleryImages && product.galleryImages.length > 0) {
         product.galleryImages = product.galleryImages.filter(
@@ -338,9 +358,7 @@ export class ProductsService {
         data: product,
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
+      if (error instanceof NotFoundException) throw error;
       throw new BadRequestException(error.message);
     }
   }

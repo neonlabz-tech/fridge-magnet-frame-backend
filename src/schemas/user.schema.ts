@@ -3,6 +3,9 @@ import { Document } from 'mongoose';
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class User extends Document {
+  @Prop({ trim: true })
+  fullName?: string;
+
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email: string;
 

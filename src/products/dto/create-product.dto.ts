@@ -1,19 +1,41 @@
-import { IsOptional } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 export class CreateProductDto {
-  productName: any;
-  productId: any;
-  category: any;
-  stock: any;
-  price: any;
-  description: any;
+  @IsString()
+  productName: string;
+
+  @IsString()
+  productId: string;
+
+  @IsString()
+  category: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  stock: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  price: number;
+
+  @IsString()
+  description: string;
 
   @IsOptional()
-  personalizationEnabled?: any;
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : value === true || value === 'true',
+  )
+  @IsIn([true, false])
+  personalizationEnabled?: boolean;
 
   @IsOptional()
+  @IsArray()
   personalization?: string[];
 
   @IsOptional()
+  @IsString()
   status?: string;
 }

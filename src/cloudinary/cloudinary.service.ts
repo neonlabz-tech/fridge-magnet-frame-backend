@@ -1,6 +1,11 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 
+type CloudinaryImage = {
+  secure_url: string;
+  public_id: string;
+};
+
 @Injectable()
 export class CloudinaryService {
   constructor() {
@@ -11,37 +16,42 @@ export class CloudinaryService {
     });
   }
 
-  async uploadImage(file: Express.Multer.File, folder: string = 'products') {
+  async uploadImage(
+    file: Express.Multer.File,
+    folder: string = 'products',
+  ): Promise<CloudinaryImage> {
     try {
       if (!file) {
         throw new BadRequestException('No file provided');
       }
 
-      return new Promise<{ secure_url: string; public_id: string }>(
-        (resolve, reject) => {
+      return await new Promise<CloudinaryImage>((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
-            folder: folder,
+            folder,
             resource_type: 'auto',
           },
           (error, result) => {
             if (error) {
-              reject(new BadRequestException(`Upload failed: ${error.message}`));
-            } else if (!result) {
-              reject(new BadRequestException('Upload failed: no result returned'));
-            } else {
-              resolve({
-                secure_url: result.secure_url,
-                public_id: result.public_id,
-              });
+              return reject(
+                new BadRequestException(`Upload failed: ${error.message}`),
+              );
             }
+
+            if (!result) {
+              return reject(new BadRequestException('Cloudinary upload failed'));
+            }
+
+            return resolve({
+              secure_url: result.secure_url,
+              public_id: result.public_id,
+            });
           },
         );
 
         uploadStream.end(file.buffer);
-      },
-      );
-    } catch (error) {
+      });
+    } catch (error: any) {
       throw new BadRequestException(`Cloudinary upload error: ${error.message}`);
     }
   }
@@ -49,18 +59,16 @@ export class CloudinaryService {
   async uploadMultipleImages(
     files: Express.Multer.File[],
     folder: string = 'products',
-  ) {
+  ): Promise<CloudinaryImage[]> {
     try {
       if (!files || files.length === 0) {
         throw new BadRequestException('No files provided');
       }
 
-      const uploadPromises = files.map((file) =>
-        this.uploadImage(file, folder),
-      );
+      const uploadPromises = files.map((file) => this.uploadImage(file, folder));
 
-      return Promise.all(uploadPromises);
-    } catch (error) {
+      return await Promise.all(uploadPromises);
+    } catch (error: any) {
       throw new BadRequestException(
         `Multiple image upload failed: ${error.message}`,
       );
@@ -77,10 +85,10 @@ export class CloudinaryService {
 
       if (result.result === 'ok') {
         return { success: true, message: 'Image deleted successfully' };
-      } else {
-        throw new BadRequestException('Failed to delete image from Cloudinary');
       }
-    } catch (error) {
+
+      throw new BadRequestException('Failed to delete image from Cloudinary');
+    } catch (error: any) {
       throw new BadRequestException(
         `Cloudinary delete error: ${error.message}`,
       );
@@ -97,8 +105,8 @@ export class CloudinaryService {
         this.deleteImage(publicId),
       );
 
-      return Promise.all(deletePromises);
-    } catch (error) {
+      return await Promise.all(deletePromises);
+    } catch (error: any) {
       throw new BadRequestException(
         `Multiple image deletion failed: ${error.message}`,
       );

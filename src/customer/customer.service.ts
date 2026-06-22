@@ -8,12 +8,14 @@ import { Model, Types } from 'mongoose';
 import { Customer, CustomerDocument } from './customer.schema';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class CustomerService {
   constructor(
     @InjectModel(Customer.name)
     private readonly customerModel: Model<CustomerDocument>,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -35,6 +37,34 @@ export class CustomerService {
     return customer.save();
   }
 
+  async findByEmail(emailAddress: string): Promise<CustomerDocument | null> {
+    return this.customerModel
+      .findOne({ emailAddress: emailAddress.toLowerCase() })
+      .exec();
+  }
+
+  async ensureForRegisteredUser(user: {
+    email: string;
+    fullName?: string;
+  }): Promise<CustomerDocument> {
+    const existingCustomer = await this.findByEmail(user.email);
+
+    if (existingCustomer) {
+      return existingCustomer;
+    }
+
+    const fallbackName = user.email.split('@')[0] || 'Website Customer';
+
+    const customer = new this.customerModel({
+      customerName: user.fullName || fallbackName,
+      emailAddress: user.email,
+      phoneNumber: '0000000000',
+      customerAddress: 'Not provided',
+    });
+
+    return customer.save();
+  }
+
   /**
    * Find all active customers with pagination, sorted by createdAt descending.
    */
@@ -42,23 +72,54 @@ export class CustomerService {
     page: number = 1,
     limit: number = 10,
   ): Promise<{
-    data: CustomerDocument[];
+    data: any[];
     total: number;
     page: number;
     limit: number;
     totalPages: number;
   }> {
-    const skip = (page - 1) * limit;
-
-    const [data, total] = await Promise.all([
+    const [customerDocs, users] = await Promise.all([
       this.customerModel
         .find({ isActive: true })
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
         .exec(),
-      this.customerModel.countDocuments({ isActive: true }).exec(),
+      this.usersService.findAll(),
     ]);
+
+    const customers: any[] = customerDocs.map((customer) =>
+      customer.toObject(),
+    );
+    const customerEmails = new Set(
+      customers.map((customer) => customer.emailAddress?.toLowerCase()),
+    );
+
+    const userCustomers: any[] = users
+      .filter(
+        (user: any) =>
+          user.role === 'user' && !customerEmails.has(user.email?.toLowerCase()),
+      )
+      .map((user: any) => ({
+        _id: user._id,
+        customerId: `USER-${String(user._id).slice(-6).toUpperCase()}`,
+        customerName:
+          user.fullName || user.email?.split('@')[0] || 'Website Customer',
+        emailAddress: user.email,
+        phoneNumber: 'Not provided',
+        customerAddress: 'Not provided',
+        isActive: true,
+        createdAt: user.createdAt,
+        source: 'user',
+      }));
+
+    const allCustomers: any[] = [...customers, ...userCustomers].sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    const total = allCustomers.length;
+    const skip = (page - 1) * limit;
+    const data = allCustomers.slice(skip, skip + limit);
 
     return {
       data,

@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 import { UsersModule } from '../users/users.module';
+import { CustomerModule } from '../customer/customer.module';
 import { PassportModule } from '@nestjs/passport';
 import { ValidationPipe } from '@nestjs/common';
 
@@ -23,6 +24,7 @@ import { ValidationPipe } from '@nestjs/common';
       }),
     }),
     UsersModule,
+    CustomerModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

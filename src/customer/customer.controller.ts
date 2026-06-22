@@ -18,18 +18,25 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  async create(@Body() createCustomerDto: CreateCustomerDto) {
-    const normalizedCreateCustomerDto: CreateCustomerDto = {
-      ...createCustomerDto,
-      customerName: createCustomerDto.customerName ?? createCustomerDto.name!,
-      emailAddress: createCustomerDto.emailAddress ?? createCustomerDto.email!,
-      phoneNumber: createCustomerDto.phoneNumber ?? createCustomerDto.phone!,
-      customerAddress:
-        createCustomerDto.customerAddress ?? createCustomerDto.address!,
+  private normalizeCustomerDto(input: any): CreateCustomerDto | UpdateCustomerDto {
+    const normalized = {
+      customerName: input.customerName ?? input.name,
+      emailAddress: input.emailAddress ?? input.email,
+      phoneNumber: input.phoneNumber ?? input.phone,
+      customerAddress: input.customerAddress ?? input.address,
     };
 
+    return Object.fromEntries(
+      Object.entries(normalized).filter(([, value]) => value !== undefined),
+    ) as CreateCustomerDto | UpdateCustomerDto;
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  async create(@Body() createCustomerDto: any) {
+    const normalizedCreateCustomerDto = this.normalizeCustomerDto(
+      createCustomerDto,
+    ) as CreateCustomerDto;
     const customer = await this.customerService.create(normalizedCreateCustomerDto);
     return {
       statusCode: HttpStatus.CREATED,
@@ -72,9 +79,12 @@ export class CustomerController {
   @Patch(':id')
   async update(
     @Param('id') id: string,
-    @Body() updateCustomerDto: UpdateCustomerDto,
+    @Body() updateCustomerDto: any,
   ) {
-    const customer = await this.customerService.update(id, updateCustomerDto);
+    const customer = await this.customerService.update(
+      id,
+      this.normalizeCustomerDto(updateCustomerDto) as UpdateCustomerDto,
+    );
     return {
       statusCode: HttpStatus.OK,
       message: 'Customer updated successfully',
