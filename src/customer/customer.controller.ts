@@ -92,6 +92,25 @@ export class CustomerController {
     };
   }
 
+  @Patch(':id/status')
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() body: { isActive: boolean; source: 'user' | 'customer' },
+  ) {
+    const customer = await this.customerService.setActiveStatus(
+      id,
+      body.isActive,
+      body.source,
+    );
+    return {
+      statusCode: HttpStatus.OK,
+      message: body.isActive
+        ? 'Customer enabled successfully'
+        : 'Customer disabled successfully',
+      data: customer,
+    };
+  }
+
   @Delete(':id')
   async remove(@Param('id') id: string) {
     const customer = await this.customerService.remove(id);
