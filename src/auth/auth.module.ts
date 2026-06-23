@@ -1,12 +1,3 @@
-/**
- * BUG-009 FIX — AuthModule
- *
- * Added `MailService` to the `providers` array so NestJS can inject it into
- * `AuthService`. Without this registration the application would throw a
- * "Cannot inject MailService" error at startup.
- * `ConfigModule` is already globally registered in AppModule, so ConfigService
- * is available to MailService automatically.
- */
 
 import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';

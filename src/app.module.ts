@@ -16,6 +16,9 @@ import { OrdersModule } from './orders/orders.module';
 import { CustomerModule } from './customer/customer.module';
 import { ProductsModule } from './products/products.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { MailModule } from './mail/mail.module';
+import { ContactModule } from './contact/contact.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 const logger = new Logger('MongoDB');
 
@@ -59,6 +62,9 @@ const logger = new Logger('MongoDB');
     CustomerModule,
     ProductsModule,
     CloudinaryModule,
+    MailModule,
+    ContactModule,
+    FeedbackModule,
   ],
   controllers: [AppController],
   providers: [AppService],
