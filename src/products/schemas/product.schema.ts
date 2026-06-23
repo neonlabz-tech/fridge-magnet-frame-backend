@@ -64,6 +64,24 @@ export class Product {
     public_id: string;
   }>;
 
+  @Prop({
+    type: [
+      {
+        previousStock: { type: Number, required: true },
+        newStock: { type: Number, required: true },
+        changedBy: { type: String, default: 'Admin' },
+        changedAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  stockHistory: Array<{
+    previousStock: number;
+    newStock: number;
+    changedBy: string;
+    changedAt: Date;
+  }>;
+
   @Prop({ type: Date, default: Date.now })
   createdAt: Date;
 

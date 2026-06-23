@@ -58,7 +58,7 @@ export class ProductsController {
     FileFieldsInterceptor(
       [
         { name: 'primaryImage', maxCount: 1 },
-        { name: 'galleryImages', maxCount: 10 },
+        { name: 'galleryImages', maxCount: 5 },
       ],
       { storage: memoryStorage() },
     ),
@@ -134,6 +134,11 @@ export class ProductsController {
       minPriceNum,
       maxPriceNum,
     );
+  }
+
+  @Get(':id/stock-log')
+  async getStockLog(@Param('id') id: string) {
+    return this.productsService.getStockLog(id);
   }
 
   @Get(':id')

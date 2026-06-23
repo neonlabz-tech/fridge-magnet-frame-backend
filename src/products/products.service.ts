@@ -71,7 +71,7 @@ export class ProductsService {
         data: product,
       };
     } catch (error) {
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -152,7 +152,7 @@ export class ProductsService {
         },
       };
     } catch (error) {
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -171,7 +171,7 @@ export class ProductsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -203,9 +203,20 @@ export class ProductsService {
 
       const updateData: any = { ...updateProductDto };
 
+      let stockHistoryEntry: { previousStock: number; newStock: number; changedBy: string; changedAt: Date } | null = null;
+
       if (updateData.stock !== undefined) {
-        updateData.stock = Number(updateData.stock) || 0;
-        updateData.status = this.getStockStatus(updateData.stock);
+        const newStock = Number(updateData.stock) || 0;
+        if (newStock !== product.stock) {
+          stockHistoryEntry = {
+            previousStock: product.stock,
+            newStock,
+            changedBy: 'Admin',
+            changedAt: new Date(),
+          };
+        }
+        updateData.stock = newStock;
+        updateData.status = this.getStockStatus(newStock);
       }
 
       if (updateData.price !== undefined) {
@@ -238,9 +249,14 @@ export class ProductsService {
 
       updateData.updatedAt = new Date();
 
+      const updateOps: any = { $set: updateData };
+      if (stockHistoryEntry) {
+        updateOps.$push = { stockHistory: stockHistoryEntry };
+      }
+
       const updatedProduct = await this.productModel.findByIdAndUpdate(
         id,
-        updateData,
+        updateOps,
         { new: true },
       );
 
@@ -256,7 +272,7 @@ export class ProductsService {
       ) {
         throw error;
       }
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -277,9 +293,16 @@ export class ProductsService {
       throw new BadRequestException('Not enough stock available');
     }
 
+    const previousStock = product.stock;
     product.stock = product.stock - orderQuantity;
     product.status = this.getStockStatus(product.stock);
     product.updatedAt = new Date();
+    product.stockHistory.push({
+      previousStock,
+      newStock: product.stock,
+      changedBy: 'System (Order)',
+      changedAt: new Date(),
+    });
 
     await product.save();
 
@@ -327,7 +350,31 @@ export class ProductsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async getStockLog(id: string) {
+    try {
+      const product = await this.productModel
+        .findById(id)
+        .select('stockHistory productName productId')
+        .exec();
+
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${id} not found`);
+      }
+
+      const log = [...(product.stockHistory || [])].reverse();
+
+      return {
+        success: true,
+        message: 'Stock log retrieved successfully',
+        data: log,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -359,7 +406,7 @@ export class ProductsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 }

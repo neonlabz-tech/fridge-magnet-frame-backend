@@ -29,24 +29,34 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const user = await this.usersService.findByEmail(loginDto.email);
-    if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
+
+    if (!user) {
+      console.warn(`[Auth] Login failed – no account for: ${loginDto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    const passwordValid = await bcrypt.compare(loginDto.password, user.password);
+    if (!passwordValid) {
+      console.warn(`[Auth] Login failed – wrong password for: ${loginDto.email}`);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     if (user.role === 'user') {
       await this.customerService.ensureForRegisteredUser({
         email: user.email,
         fullName: user.fullName,
       });
     }
+
     const payload = { email: user.email, sub: user._id.toString(), role: user.role };
     return {
-      access_token: this.jwtService.sign(payload),
+      token: this.jwtService.sign(payload),
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+      },
     };
   }
 
@@ -67,13 +77,13 @@ export class AuthService {
     });
     const payload = { email: user.email, sub: user._id.toString(), role: user.role };
     return {
-      access_token: this.jwtService.sign(payload),
+      token: this.jwtService.sign(payload),
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+      },
     };
   }
 
