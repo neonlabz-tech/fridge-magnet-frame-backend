@@ -10,11 +10,11 @@ import { MailModule } from '../mail/mail.module';
 @Module({
   imports: [
     CustomerModule,
+    MailModule,
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },
       { name: Product.name, schema: ProductSchema },
     ]),
-    MailModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService],
