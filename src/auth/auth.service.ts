@@ -8,6 +8,8 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as crypto from 'crypto';
+import { ConfigService } from '@nestjs/config';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -15,6 +17,8 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private customerService: CustomerService,
+    private mailService: MailService,
+    private configService: ConfigService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -95,16 +99,23 @@ export class AuthService {
     user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
     await user.save();
     
-    console.log('DEBUG: Plain reset token for email:', resetToken);
-    console.log('DEBUG: Hashed token stored in DB:', hashedToken);
-    console.log('DEBUG: Reset token expires:', user.passwordResetExpires);
-    
-    // In production, you would send an email with the plain token
-    // For testing, we return the plain token
-    return { 
-      message: 'If that email exists, a reset link has been sent.',
-      resetToken // Remove this in production
-    };
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const resetLink = `${frontendUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(resetToken)}`;
+
+    try {
+      await this.mailService.sendMail({
+        to: user.email,
+        subject: 'Reset your Magnify password',
+        text: `Use this link to reset your password (valid for 15 minutes):\n\n${resetLink}`,
+      });
+    } catch {
+      user.passwordResetToken = undefined;
+      user.passwordResetExpires = undefined;
+      await user.save();
+      throw new BadRequestException('Unable to send reset email right now');
+    }
+
+    return { message: 'If that email exists, a reset link has been sent.' };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
