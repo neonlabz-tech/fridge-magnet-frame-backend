@@ -1,3 +1,13 @@
+/**
+ * BUG-009 FIX — AuthModule
+ *
+ * Added `MailService` to the `providers` array so NestJS can inject it into
+ * `AuthService`. Without this registration the application would throw a
+ * "Cannot inject MailService" error at startup.
+ * `ConfigModule` is already globally registered in AppModule, so ConfigService
+ * is available to MailService automatically.
+ */
+
 import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -8,6 +18,8 @@ import { UsersModule } from '../users/users.module';
 import { CustomerModule } from '../customer/customer.module';
 import { PassportModule } from '@nestjs/passport';
 import { ValidationPipe } from '@nestjs/common';
+// BUG-009 FIX: Import the new MailService.
+import { MailService } from './mail.service';
 
 @Module({
   imports: [
@@ -27,7 +39,9 @@ import { ValidationPipe } from '@nestjs/common';
     CustomerModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  // BUG-009 FIX: MailService is added here so NestJS's DI container
+  // can resolve it when AuthService requests it via constructor injection.
+  providers: [AuthService, JwtStrategy, MailService],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
