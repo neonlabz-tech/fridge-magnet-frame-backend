@@ -5,6 +5,7 @@ import { OrdersService } from './orders.service';
 import { Order, OrderSchema } from './schemas/order.schema';
 import { Product, ProductSchema } from '../products/schemas/product.schema';
 import { CustomerModule } from '../customer/customer.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { CustomerModule } from '../customer/customer.module';
       { name: Order.name, schema: OrderSchema },
       { name: Product.name, schema: ProductSchema },
     ]),
+    MailModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

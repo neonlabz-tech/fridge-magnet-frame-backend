@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -6,9 +6,11 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { CustomerService } from '../customer/customer.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
   private readonly statusRank: Record<string, number> = {
     PENDING: 0,
     PROCESSING: 1,
@@ -23,6 +25,7 @@ export class OrdersService {
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
     private readonly customerService: CustomerService,
+    private readonly mailService: MailService,
   ) {}
 
   private getStatusFromStock(stock: number) {
@@ -112,6 +115,27 @@ export class OrdersService {
     order.status = dto.status;
     order.adminNote = dto.adminNote;
     await order.save();
+
+    if (dto.sendEmailNotification && order.email) {
+      this.mailService
+        .sendOrderStatusUpdate({
+          to: order.email,
+          customerName: order.customerName,
+          orderId: order.orderId,
+          newStatus: dto.status,
+          adminNote: dto.adminNote,
+        })
+        .catch((err) =>
+          this.logger.error(
+            `[Orders] Email notification failed for order ${order.orderId}: ` +
+              (err instanceof Error ? err.message : String(err)),
+          ),
+        );
+    } else if (dto.sendEmailNotification && !order.email) {
+      this.logger.warn(
+        `[Orders] sendEmailNotification=true but order ${order.orderId} has no email address`,
+      );
+    }
 
     return order;
   }
