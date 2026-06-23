@@ -55,6 +55,10 @@ export class MailService {
    * @param resetLink Full URL that the user should click to reset their password
    */
   async sendPasswordResetEmail(to: string, resetLink: string): Promise<void> {
+    if (process.env.NODE_ENV === 'test') {
+      this.logger.log(`[TEST] Skipping SMTP email sending in test environment.`);
+      return;
+    }
     // Step 1 — log that we are about to attempt the send.
     this.logger.log(`[STEP 3] Attempting to send password-reset email to: ${to}`);
 

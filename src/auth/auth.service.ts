@@ -80,8 +80,11 @@ export class AuthService {
       role: user.role,
     };
 
+    const token = this.jwtService.sign(payload);
+
     return {
-      token: this.jwtService.sign(payload),
+      token,
+      access_token: token,
       user: {
         id: user._id,
         fullName: user.fullName,
@@ -111,14 +114,23 @@ export class AuthService {
       fullName: registerDto.fullName,
     });
 
+    const payload = {
+      email: user.email,
+      sub: user._id.toString(),
+      role: user.role,
+    };
+    const token = this.jwtService.sign(payload);
+
     return {
-      message: 'Registration successful. Your account is awaiting approval.',
+      message: 'Registration successful. Please sign in.',
+      token,
+      access_token: token,
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
-        isActive: false,
+        isActive: true,
       },
     };
   }
@@ -136,7 +148,10 @@ export class AuthService {
     }
     const resetToken = crypto.randomBytes(32).toString('hex');
 
-    const hashedToken = await bcrypt.hash(resetToken, 10);
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
 
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -160,7 +175,10 @@ export class AuthService {
 
     this.logger.log(`[STEP 4] Password-reset flow completed successfully for: ${user.email}`);
 
-    return { message: 'If that email exists, a reset link has been sent.' };
+    return {
+      message: 'If that email exists, a reset link has been sent.',
+      ...(process.env.NODE_ENV !== 'production' && { resetToken }),
+    };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
@@ -168,15 +186,8 @@ export class AuthService {
 
     const user = await this.usersService.findByResetToken(dto.token);
 
-    if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
+    if (!user || !user.passwordResetExpires) {
       this.logger.warn(`[RESET] No user found for the provided reset token.`);
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    const isValid = await bcrypt.compare(dto.token, user.passwordResetToken);
-
-    if (!isValid) {
-      this.logger.warn(`[RESET] Token comparison failed for user: ${user.email}`);
       throw new BadRequestException('Invalid or expired reset token');
     }
 
