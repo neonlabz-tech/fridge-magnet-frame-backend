@@ -19,7 +19,11 @@ export class AuthService {
 
   async validateUser(email: string, pass: string): Promise<any> {
     const user = await this.usersService.findByEmail(email);
-    if (user && await bcrypt.compare(pass, user.password)) {
+    if (
+      user &&
+      !(user.role === 'user' && user.isActive !== true) &&
+      (await bcrypt.compare(pass, user.password))
+    ) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password, ...result } = user.toObject();
       return result;
@@ -32,21 +36,31 @@ export class AuthService {
     if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    if (user.role === 'user' && user.isActive !== true) {
+      throw new UnauthorizedException(
+        'Your account is disabled. Please contact support.',
+      );
+    }
     if (user.role === 'user') {
       await this.customerService.ensureForRegisteredUser({
         email: user.email,
         fullName: user.fullName,
       });
     }
-    const payload = { email: user.email, sub: user._id.toString(), role: user.role };
+    const payload = {
+      email: user.email,
+      sub: user._id.toString(),
+      role: user.role,
+    };
     return {
       access_token: this.jwtService.sign(payload),
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+        isActive: user.isActive,
+      },
     };
   }
 
@@ -65,15 +79,15 @@ export class AuthService {
       email: user.email,
       fullName: registerDto.fullName,
     });
-    const payload = { email: user.email, sub: user._id.toString(), role: user.role };
     return {
-      access_token: this.jwtService.sign(payload),
+      message: 'Registration successful. Your account is awaiting approval.',
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+        isActive: false,
+      },
     };
   }
 

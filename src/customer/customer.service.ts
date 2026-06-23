@@ -80,15 +80,32 @@ export class CustomerService {
   }> {
     const [customerDocs, users] = await Promise.all([
       this.customerModel
-        .find({ isActive: true })
+        .find()
         .sort({ createdAt: -1 })
         .exec(),
       this.usersService.findAll(),
     ]);
 
-    const customers: any[] = customerDocs.map((customer) =>
-      customer.toObject(),
+    const usersByEmail = new Map(
+      users
+        .filter((user: any) => user.role === 'user')
+        .map((user: any) => [user.email?.toLowerCase(), user]),
     );
+    const customers: any[] = customerDocs.map((customer) => {
+      const item: any = customer.toObject();
+      const registeredUser: any = usersByEmail.get(
+        item.emailAddress?.toLowerCase(),
+      );
+
+      return registeredUser
+        ? {
+            ...item,
+            recordId: registeredUser._id,
+            source: 'user',
+            isActive: registeredUser.isActive === true,
+          }
+        : { ...item, recordId: item._id, source: 'customer' };
+    });
     const customerEmails = new Set(
       customers.map((customer) => customer.emailAddress?.toLowerCase()),
     );
@@ -106,9 +123,10 @@ export class CustomerService {
         emailAddress: user.email,
         phoneNumber: 'Not provided',
         customerAddress: 'Not provided',
-        isActive: true,
+        recordId: user._id,
         createdAt: user.createdAt,
         source: 'user',
+        isActive: user.isActive === true,
       }));
 
     const allCustomers: any[] = [...customers, ...userCustomers].sort((a, b) => {
@@ -194,5 +212,64 @@ export class CustomerService {
     const customer = await this.findOne(id);
     customer.isActive = false;
     return customer.save();
+  }
+
+  async setActiveStatus(
+    id: string,
+    isActive: boolean,
+    source: 'user' | 'customer',
+  ): Promise<CustomerDocument | any> {
+    if (source === 'user') {
+      const user = await this.usersService.updateActiveStatus(id, isActive);
+      if (!user) {
+        throw new NotFoundException(`Registered user with ID "${id}" not found`);
+      }
+
+      await this.ensureForRegisteredUser({
+        email: user.email,
+        fullName: user.fullName,
+      });
+      await this.customerModel.updateOne(
+        { emailAddress: user.email.toLowerCase() },
+        { $set: { isActive } },
+      );
+      return user;
+    }
+
+    const customer = await this.findOne(id);
+    customer.isActive = isActive;
+    return customer.save();
+  }
+
+  async updateFromOrder(order: {
+    email: string;
+    customerName: string;
+    phone?: string;
+    shippingAddress: string;
+  }): Promise<CustomerDocument> {
+    const emailAddress = order.email.trim().toLowerCase();
+    const digits = (order.phone || '').replace(/\D/g, '');
+    const phoneNumber =
+      digits.startsWith('94') && digits.length === 11
+        ? `0${digits.slice(2)}`
+        : digits.length >= 10
+          ? digits.slice(-10)
+          : '0000000000';
+
+    const customer = await this.findByEmail(emailAddress);
+    if (customer) {
+      customer.customerName = order.customerName.trim() || customer.customerName;
+      customer.phoneNumber = phoneNumber;
+      customer.customerAddress = order.shippingAddress.trim();
+      return customer.save();
+    }
+
+    return new this.customerModel({
+      customerName: order.customerName.trim(),
+      emailAddress,
+      phoneNumber,
+      customerAddress: order.shippingAddress.trim(),
+      isActive: true,
+    }).save();
   }
 }

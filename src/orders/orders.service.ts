@@ -5,6 +5,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
+import { CustomerService } from '../customer/customer.service';
 
 @Injectable()
 export class OrdersService {
@@ -21,6 +22,7 @@ export class OrdersService {
     private orderModel: Model<OrderDocument>,
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
+    private readonly customerService: CustomerService,
   ) {}
 
   private getStatusFromStock(stock: number) {
@@ -60,6 +62,12 @@ export class OrdersService {
   }
 
   const order = await this.orderModel.create(dto);
+  await this.customerService.updateFromOrder({
+    email: dto.email,
+    customerName: dto.customerName,
+    phone: dto.phone,
+    shippingAddress: dto.shippingAddress,
+  });
   return order;
 }
   
