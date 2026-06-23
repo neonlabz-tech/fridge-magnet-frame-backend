@@ -13,6 +13,8 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as crypto from 'crypto';
+import { ConfigService } from '@nestjs/config';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -20,6 +22,8 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private customerService: CustomerService,
+    private mailService: MailService,
+    private configService: ConfigService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -130,35 +134,44 @@ export class AuthService {
     user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
     await user.save();
 
-    console.log('DEBUG: Plain reset token for email:', resetToken);
-    console.log('DEBUG: Hashed token stored in DB:', hashedToken);
-    console.log('DEBUG: Reset token expires:', user.passwordResetExpires);
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
 
-    return {
-      message: 'If that email exists, a reset link has been sent.',
-      resetToken,
-    };
+    const resetLink = `${frontendUrl.replace(
+      /\/$/,
+      '',
+    )}/reset-password?token=${encodeURIComponent(resetToken)}`;
+
+    try {
+      await this.mailService.sendMail({
+        to: user.email,
+        subject: 'Reset your Magnify password',
+        text: `Use this link to reset your password (valid for 15 minutes):\n\n${resetLink}`,
+      });
+    } catch {
+      user.passwordResetToken = undefined;
+      user.passwordResetExpires = undefined;
+      await user.save();
+      throw new BadRequestException('Unable to send reset email right now');
+    }
+
+    return { message: 'If that email exists, a reset link has been sent.' };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
     const user = await this.usersService.findByResetToken(dto.token);
 
-    console.log('DEBUG: User found for reset token:', user?.email);
-
     if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
-      console.log('DEBUG: No user or missing token/expiry');
       throw new BadRequestException('Invalid or expired reset token');
     }
 
     const isValid = await bcrypt.compare(dto.token, user.passwordResetToken);
-    console.log('DEBUG: bcrypt.compare result:', isValid);
 
     if (!isValid) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
     if (user.passwordResetExpires < new Date()) {
-      console.log('DEBUG: Token expired:', user.passwordResetExpires);
       throw new BadRequestException('Reset token expired');
     }
 
@@ -166,8 +179,6 @@ export class AuthService {
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save();
-
-    console.log('DEBUG: Password reset successful for:', user.email);
 
     return { message: 'Password reset successful' };
   }
