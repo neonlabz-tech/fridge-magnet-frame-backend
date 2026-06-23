@@ -21,6 +21,7 @@ export class UsersService {
       password: hashedPassword,
       role,
       fullName,
+      isActive: role === 'admin',
     });
     return createdUser.save();
   }
@@ -49,6 +50,13 @@ export class UsersService {
   
   async findById(id: string): Promise<User | null> {
     return this.userModel.findById(id).select('-password').exec();
+  }
+
+  async updateActiveStatus(id: string, isActive: boolean): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { $set: { isActive } }, { new: true })
+      .select('-password')
+      .exec();
   }
   
   async createAdmin(email: string, password: string): Promise<User> {
