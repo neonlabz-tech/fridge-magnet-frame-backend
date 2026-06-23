@@ -17,7 +17,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let statusCode: number;
     let message: string;
 
-    if (exception instanceof HttpException) {
+    const maybeMulterError = exception as any;
+    if (maybeMulterError?.code === 'LIMIT_UNEXPECTED_FILE' && maybeMulterError?.field === 'galleryImages') {
+      // Raw Multer error (caught before NestJS transforms it)
+      statusCode = HttpStatus.BAD_REQUEST;
+      message = 'You can upload a maximum of 5 gallery images.';
+    } else if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
       const exceptionResponse = exception.getResponse();
 
@@ -33,6 +38,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
       } else {
         message = exception.message;
+      }
+
+      // NestJS transforms MulterError(LIMIT_UNEXPECTED_FILE, 'galleryImages')
+      // into BadRequestException('Unexpected field - galleryImages') before this
+      // filter sees it — intercept that specific message here.
+      if (statusCode === HttpStatus.BAD_REQUEST && message.includes('galleryImages')) {
+        message = 'You can upload a maximum of 5 gallery images.';
       }
     } else if (exception instanceof Error) {
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR;

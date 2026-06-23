@@ -15,6 +15,9 @@ export class User extends Document {
   @Prop({ default: 'user', enum: ['user', 'admin'] })
   role: string;
 
+  @Prop({ type: Boolean, default: false })
+  isActive: boolean;
+
   @Prop({ type: String })
   passwordResetToken?: string;
 
