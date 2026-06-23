@@ -40,6 +40,28 @@ export class MailService implements OnModuleInit {
     }
   }
 
+  async sendMail(options: {
+    to: string;
+    subject: string;
+    text: string;
+    html?: string;
+    replyTo?: string;
+  }): Promise<void> {
+    if (!this.transporter) {
+      throw new Error('SMTP not configured — cannot send email');
+    }
+    try {
+      await this.transporter.sendMail({ from: this.fromAddress, ...options });
+      this.logger.log(`[Mail] Email sent to ${options.to}: ${options.subject}`);
+    } catch (err) {
+      this.logger.error(
+        `[Mail] Failed to send email to ${options.to}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      throw err;
+    }
+  }
+
   async sendOrderStatusUpdate(opts: {
     to: string;
     customerName: string;
