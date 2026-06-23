@@ -18,6 +18,18 @@ export class User extends Document {
   @Prop({ type: Boolean, default: false })
   isActive: boolean;
 
+  @Prop({ type: String, trim: true, default: '' })
+  bio?: string;
+
+  @Prop({ type: String, default: '' })
+  avatar?: string;
+
+  @Prop({ type: String, default: '' })
+  avatarPublicId?: string;
+
+  @Prop({ type: Boolean, default: false })
+  twoFactorEnabled?: boolean;
+
   @Prop({ type: String })
   passwordResetToken?: string;
 

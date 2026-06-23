@@ -58,6 +58,39 @@ export class UsersService {
       .select('-password')
       .exec();
   }
+
+  async findByIdWithPassword(id: string): Promise<User | null> {
+    return this.userModel.findById(id).exec();
+  }
+
+  async updateProfile(
+    id: string,
+    update: Partial<
+      Pick<User, 'fullName' | 'email' | 'bio' | 'avatar' | 'twoFactorEnabled'>
+    >,
+  ): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { $set: update }, { new: true })
+      .select('-password')
+      .exec();
+  }
+
+  async updateAvatar(
+    id: string,
+    avatar: string,
+    avatarPublicId: string,
+  ): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { $set: { avatar, avatarPublicId } }, { new: true })
+      .select('-password')
+      .exec();
+  }
+
+  async updatePassword(id: string, newHashedPassword: string): Promise<void> {
+    await this.userModel
+      .findByIdAndUpdate(id, { $set: { password: newHashedPassword } })
+      .exec();
+  }
   
   async createAdmin(email: string, password: string): Promise<User> {
     return this.create(email, password, 'admin');
