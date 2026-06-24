@@ -115,28 +115,36 @@ export class OrdersService {
     order.adminNote = dto.adminNote;
     await order.save();
 
-    if (dto.sendEmailNotification && order.email) {
-      this.mailService
-        .sendOrderStatusUpdate({
-          to: order.email,
-          customerName: order.customerName,
-          orderId: order.orderId,
-          newStatus: dto.status,
-          adminNote: dto.adminNote,
-        })
-        .catch((err) =>
-          this.logger.error(
-            `[Orders] Email notification failed for order ${order.orderId}: ` +
-              (err instanceof Error ? err.message : String(err)),
-          ),
-        );
-    } else if (dto.sendEmailNotification && !order.email) {
+    if (!dto.sendEmailNotification) {
+      return order;
+    }
+
+    if (!order.email) {
       this.logger.warn(
         `[Orders] sendEmailNotification=true but order ${order.orderId} has no email address`,
       );
+      return {
+        ...order.toObject(),
+        emailNotification: { attempted: false, success: false, error: 'Order has no email address' },
+      };
     }
 
-    return order;
+    const emailResult = await this.mailService.sendOrderStatusUpdate({
+      to: order.email,
+      customerName: order.customerName,
+      orderId: order.orderId,
+      newStatus: dto.status,
+      adminNote: dto.adminNote,
+    });
+
+    return {
+      ...order.toObject(),
+      emailNotification: {
+        attempted: true,
+        success: emailResult.success,
+        ...(emailResult.error ? { error: emailResult.error } : {}),
+      },
+    };
   }
 
   async delete(id: string) {
