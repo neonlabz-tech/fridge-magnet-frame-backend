@@ -17,12 +17,13 @@ interface SmtpError extends Error {
   responseCode?: number;
 }
 
-// Minimum gap enforced between consecutive sends so the pattern doesn't
-// look like a burst to Gmail's abuse-detection heuristics.
-const MIN_SEND_GAP_MS = 1500;
+// 2 s minimum between consecutive sends — prevents burst patterns that trip
+// Gmail's abuse-detection heuristics even for legitimate transactional mail.
+const MIN_SEND_GAP_MS = 2000;
 
-// Delays before each retry attempt (2 retries total after the first try).
-const RETRY_DELAYS_MS = [2000, 4000] as const;
+// Backoff delays for retries (2 retries after the first attempt).
+// Longer gaps look less like automated hammering to receiving infrastructure.
+const RETRY_DELAYS_MS = [3000, 6000] as const;
 
 function escapeHtml(s: string): string {
   return s
@@ -54,8 +55,7 @@ export class MailService implements OnModuleInit {
       secureEnv !== undefined ? secureEnv === 'true' : this.cfgPort === 465;
     this.cfgUser = config.get<string>('SMTP_USER');
     this.cfgPass = config.get<string>('SMTP_PASS')?.replace(/\s/g, '');
-    this.fromAddress =
-      config.get<string>('SMTP_FROM') || this.cfgUser || '';
+    this.fromAddress = config.get<string>('SMTP_FROM') || this.cfgUser || '';
     this.replyToAddress =
       config.get<string>('SMTP_REPLY_TO') || this.cfgUser || '';
 
@@ -69,30 +69,26 @@ export class MailService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     if (!this.cfgHost || !this.cfgUser || !this.cfgPass) return;
 
-    // ── Security reminder ────────────────────────────────────────────────────
+    // If Google ever surfaces a "suspicious sign-in" alert for this account and
+    // it wasn't confirmed as "Yes, it was me", subsequent sends will be silently
+    // throttled or dropped even after a 250 OK. Check this URL on each deploy.
     this.logger.warn(
-      '[Mail] SECURITY REMINDER: Before relying on email delivery, verify that ' +
-        'https://myaccount.google.com/security-checkup shows NO unusual access ' +
-        'alerts or blocked sign-ins for the sending account (' +
-        this.cfgUser +
-        ').',
+      `[Mail] SECURITY CHECK: visit https://myaccount.google.com/security-checkup` +
+        ` and confirm no unreviewed alerts for ${this.cfgUser}`,
     );
 
-    // ── Force IPv4 ──────────────────────────────────────────────────────────
-    // On this machine IPv6 to smtp.gmail.com is blocked (EHOSTUNREACH).
-    // Node.js tries AAAA first; nodemailer does not retry on A automatically.
+    // Force IPv4: this server's IPv6 path to smtp.gmail.com returns EHOSTUNREACH.
+    // Node.js resolves AAAA first; nodemailer does not fall back to A automatically.
     let connectHost = this.cfgHost;
     try {
       const [ipv4] = await resolve4(this.cfgHost);
       connectHost = ipv4;
-      this.logger.log(
-        `[Mail] ${this.cfgHost} → IPv4 ${ipv4} (IPv6 blocked on this network)`,
-      );
+      this.logger.log(`[Mail] ${this.cfgHost} → IPv4 ${ipv4}`);
     } catch (dnsErr) {
       this.logger.warn(
-        `[Mail] IPv4 DNS lookup failed for ${this.cfgHost}: ` +
+        `[Mail] IPv4 lookup failed for ${this.cfgHost}: ` +
           (dnsErr instanceof Error ? dnsErr.message : String(dnsErr)) +
-          ' — falling back to hostname (may use IPv6)',
+          ' — using hostname (may try IPv6)',
       );
     }
 
@@ -101,15 +97,19 @@ export class MailService implements OnModuleInit {
       port: this.cfgPort,
       secure: this.cfgSecure,
       auth: { user: this.cfgUser, pass: this.cfgPass },
-      // SNI must carry the real hostname when connecting via IP address
-      tls: { servername: this.cfgHost },
+      tls: { servername: this.cfgHost }, // SNI must carry real hostname when dialling an IP
+      // Pool keeps one persistent connection; rate limiting enforced at transport level.
+      pool: true,
+      maxConnections: 1,
+      maxMessages: 5,   // recycle connection every 5 messages (Gmail tolerates long-lived but 5 is safe)
+      rateDelta: 1000,  // 1 s window
+      rateLimit: 1,     // max 1 message per rateDelta — our 2 s app-level throttle is more conservative anyway
     });
 
-    // ── verify() — confirms TCP connection + AUTH before any send ───────────
     try {
       await this.transporter.verify();
       this.logger.log(
-        `[Mail] verify() OK — ${connectHost}:${this.cfgPort} | user: ${this.cfgUser}`,
+        `[Mail] SMTP ready — ${connectHost}:${this.cfgPort} | from: ${this.fromAddress}`,
       );
     } catch (err) {
       const e = err as SmtpError;
@@ -126,7 +126,7 @@ export class MailService implements OnModuleInit {
     }
   }
 
-  // ─── Rate-limit helper ────────────────────────────────────────────────────
+  // ─── Rate-limit: enforce minimum gap between sends ────────────────────────
 
   private async throttle(): Promise<void> {
     const gap = Date.now() - this.lastSendTime;
@@ -149,6 +149,13 @@ export class MailService implements OnModuleInit {
     const outgoing: nodemailer.SendMailOptions = {
       from: this.fromAddress,
       replyTo: this.replyToAddress,
+      // Explicitly mark as normal priority — omitting this can cause some MTAs
+      // to infer high-priority, which is a spam fingerprint for bulk senders.
+      priority: 'normal',
+      headers: {
+        // Identifies the sending app without leaking tech stack details.
+        'X-Mailer': 'Magnify',
+      },
       ...message,
     };
 
@@ -161,7 +168,7 @@ export class MailService implements OnModuleInit {
         const info: SentInfo = await this.transporter.sendMail(outgoing);
         this.logger.log(
           `[Mail] SENT ${label}${attempt > 1 ? ` (attempt ${attempt})` : ''}\n` +
-            `  to          : ${Array.isArray(message.to) ? message.to.join(', ') : message.to}\n` +
+            `  to          : ${Array.isArray(message.to) ? (message.to as string[]).join(', ') : message.to}\n` +
             `  messageId   : ${info.messageId}\n` +
             `  response    : ${info.response}\n` +
             `  accepted    : ${info.accepted?.join(', ') || '—'}\n` +
@@ -197,8 +204,8 @@ export class MailService implements OnModuleInit {
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
-  // Signatures unchanged — auth.service.ts and contact.service.ts call sendMail()
-  // orders.service.ts calls sendOrderStatusUpdate()
+  // sendMail             — auth.service.ts (password reset), contact.service.ts
+  // sendOrderStatusUpdate — orders.service.ts
 
   async sendMail(options: {
     to: string;
@@ -207,10 +214,11 @@ export class MailService implements OnModuleInit {
     html?: string;
     replyTo?: string;
   }): Promise<void> {
+    const label = `→ ${options.to} | "${options.subject}"`;
     try {
-      await this.doSend(options, `→ ${options.to} | "${options.subject}"`);
+      await this.doSend(options, label);
     } catch (err) {
-      this.logSendError(err, `→ ${options.to} | "${options.subject}"`);
+      this.logSendError(err, label);
       throw err;
     }
   }
@@ -245,6 +253,10 @@ export class MailService implements OnModuleInit {
       ? `\n\nNote from our team: ${opts.adminNote}`
       : '';
 
+    // Spam-trigger review (checked against common Gmail heuristics):
+    // Subject: no ALL-CAPS, no exclamation, no "free/urgent/act now" — clean.
+    // Body: no financial trigger words, plain sentence structure — clean.
+    // Links: none in order update body — clean.
     const html = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
         <h2 style="color:#002B73;margin-bottom:8px">Magnify — Order Update</h2>
@@ -256,7 +268,7 @@ export class MailService implements OnModuleInit {
           ${safeStatus}
         </p>
         ${noteHtml}
-        <p style="color:#434652;margin-top:24px">Thank you for shopping with Magnify!</p>
+        <p style="color:#434652;margin-top:24px">Thank you for shopping with Magnify.</p>
         <hr style="border:none;border-top:1px solid #EEF1F5;margin:24px 0"/>
         <p style="font-size:12px;color:#9CA3AF">
           Questions about your order? Reply to this email and we will get back to you.
@@ -267,8 +279,8 @@ export class MailService implements OnModuleInit {
       `Dear ${opts.customerName},\n\n` +
       `Your order #${opts.orderId} has been updated to: ${statusLabel}.` +
       noteText +
-      `\n\nThank you for shopping with Magnify!\n\n` +
-      `Questions about your order? Reply to this email and we will get back to you.`;
+      `\n\nThank you for shopping with Magnify.\n\n` +
+      `Questions about your order? Reply to this email.`;
 
     const label = `order #${opts.orderId} → ${opts.to} (${statusLabel})`;
     try {
@@ -279,13 +291,21 @@ export class MailService implements OnModuleInit {
           subject: `Your Magnify order #${opts.orderId} is now ${statusLabel}`,
           html,
           text,
+          // List-Unsubscribe signals to Gmail that this is legitimate transactional
+          // mail from a sender who respects unsubscribe requests — positive deliverability signal.
+          headers: {
+            'List-Unsubscribe': `<mailto:${this.cfgUser}>`,
+          },
         },
         label,
       );
       return { success: true };
     } catch (err) {
       this.logSendError(err, label);
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 }
