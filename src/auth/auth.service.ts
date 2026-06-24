@@ -14,8 +14,10 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as crypto from 'crypto';
 import { MailService } from './mail.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class AuthService {
@@ -27,6 +29,7 @@ export class AuthService {
     private customerService: CustomerService,
     private mailService: MailService,
     private configService: ConfigService,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -181,5 +184,128 @@ export class AuthService {
     await user.save();
 
     return { message: 'Password reset successful' };
+  }
+
+  private serializeProfile(user: any) {
+    return {
+      id: user._id,
+      fullName: user.fullName || '',
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      bio: user.bio || '',
+      avatar: user.avatar || '',
+      twoFactorEnabled: user.twoFactorEnabled || false,
+    };
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.usersService.findById(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return { user: this.serializeProfile(user) };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.usersService.findByIdWithPassword(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // If the email is changing, make sure it is not already taken.
+    if (dto.email && dto.email.toLowerCase() !== user.email) {
+      const existing = await this.usersService.findByEmail(dto.email);
+      if (existing) {
+        throw new ConflictException('Email already in use');
+      }
+    }
+
+    // Handle an optional password change.
+    if (dto.newPassword) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException(
+          'Current password is required to set a new password',
+        );
+      }
+
+      const passwordValid = await bcrypt.compare(
+        dto.currentPassword,
+        user.password,
+      );
+
+      if (!passwordValid) {
+        throw new BadRequestException('Current password is incorrect');
+      }
+
+      const hashed = await bcrypt.hash(dto.newPassword, 10);
+      await this.usersService.updatePassword(userId, hashed);
+    }
+
+    const profileUpdate: Record<string, unknown> = {};
+    if (dto.fullName !== undefined) profileUpdate.fullName = dto.fullName;
+    if (dto.email !== undefined) profileUpdate.email = dto.email.toLowerCase();
+    if (dto.bio !== undefined) profileUpdate.bio = dto.bio;
+    if (dto.twoFactorEnabled !== undefined)
+      profileUpdate.twoFactorEnabled = dto.twoFactorEnabled;
+
+    // When the avatar is explicitly cleared, remove the stored Cloudinary image.
+    if (dto.avatar !== undefined) {
+      profileUpdate.avatar = dto.avatar;
+      if (!dto.avatar && user.avatarPublicId) {
+        try {
+          await this.cloudinaryService.deleteImage(user.avatarPublicId);
+        } catch {
+          // Ignore cleanup failures; the reference is still cleared below.
+        }
+        profileUpdate.avatarPublicId = '';
+      }
+    }
+
+    const updated = Object.keys(profileUpdate).length
+      ? await this.usersService.updateProfile(userId, profileUpdate)
+      : await this.usersService.findById(userId);
+
+    return {
+      message: 'Profile updated successfully',
+      user: this.serializeProfile(updated),
+    };
+  }
+
+  async uploadAvatar(userId: string, file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No image file provided');
+    }
+
+    const user = await this.usersService.findByIdWithPassword(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Remove the previous avatar from Cloudinary before uploading the new one.
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.deleteImage(user.avatarPublicId);
+      } catch {
+        // Ignore cleanup failures and continue with the new upload.
+      }
+    }
+
+    const uploaded = await this.cloudinaryService.uploadImage(file, 'avatars');
+
+    const updated = await this.usersService.updateAvatar(
+      userId,
+      uploaded.secure_url,
+      uploaded.public_id,
+    );
+
+    return {
+      message: 'Avatar updated successfully',
+      user: this.serializeProfile(updated),
+    };
   }
 }

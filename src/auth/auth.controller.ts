@@ -1,10 +1,25 @@
-import { Body, Controller, Post, HttpCode } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Patch,
+  Post,
+  Request,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -31,5 +46,30 @@ export class AuthController {
 	@HttpCode(200)
 	async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
 		return this.authService.resetPassword(resetPasswordDto);
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Get('profile')
+	async getProfile(@Request() req: { user: { userId: string } }) {
+		return this.authService.getProfile(req.user.userId);
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Patch('profile')
+	async updateProfile(
+		@Request() req: { user: { userId: string } },
+		@Body() updateProfileDto: UpdateProfileDto,
+	) {
+		return this.authService.updateProfile(req.user.userId, updateProfileDto);
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Post('profile/avatar')
+	@UseInterceptors(FileInterceptor('avatar', { storage: memoryStorage() }))
+	async uploadAvatar(
+		@Request() req: { user: { userId: string } },
+		@UploadedFile() file: Express.Multer.File,
+	) {
+		return this.authService.uploadAvatar(req.user.userId, file);
 	}
 }
