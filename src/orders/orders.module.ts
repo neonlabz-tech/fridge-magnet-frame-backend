@@ -5,10 +5,12 @@ import { OrdersService } from './orders.service';
 import { Order, OrderSchema } from './schemas/order.schema';
 import { Product, ProductSchema } from '../products/schemas/product.schema';
 import { CustomerModule } from '../customer/customer.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     CustomerModule,
+    MailModule,
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },
       { name: Product.name, schema: ProductSchema },

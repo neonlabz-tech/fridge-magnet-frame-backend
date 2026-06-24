@@ -16,7 +16,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as crypto from 'crypto';
-import { MailService } from './mail.service';
+import { MailService } from '../mail/mail.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
@@ -159,7 +159,44 @@ export class AuthService {
 
     const resetLink = `${frontendBaseUrl}/reset-password?token=${resetToken}`;
 
-    await this.mailService.sendPasswordResetEmail(user.email, resetLink);
+    const resetHtml = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
+        <h2 style="color:#002B73;margin-bottom:8px">Magnify — Password Reset</h2>
+        <p style="color:#434652">We received a request to reset your Magnify account password.</p>
+        <p style="color:#434652">Click the button below to set a new password. This link is valid for 15 minutes.</p>
+        <p style="margin:24px 0">
+          <a href="${resetLink}"
+             style="background:#002B73;color:#ffffff;padding:12px 24px;border-radius:4px;text-decoration:none;display:inline-block">
+            Reset your password
+          </a>
+        </p>
+        <p style="font-size:13px;color:#9CA3AF">
+          Or paste this link into your browser:<br/>
+          <span style="word-break:break-all;color:#434652">${resetLink}</span>
+        </p>
+        <hr style="border:none;border-top:1px solid #EEF1F5;margin:24px 0"/>
+        <p style="font-size:12px;color:#9CA3AF">
+          If you did not request a password reset, you can safely ignore this email.
+        </p>
+      </div>
+    `;
+
+    try {
+      await this.mailService.sendMail({
+        to: user.email,
+        subject: 'Reset your Magnify password',
+        text:
+          `We received a request to reset your Magnify account password.\n\n` +
+          `Use this link to reset your password (valid for 15 minutes):\n\n${resetLink}\n\n` +
+          `If you did not request a password reset, you can safely ignore this email.`,
+        html: resetHtml,
+      });
+    } catch {
+      user.passwordResetToken = undefined;
+      user.passwordResetExpires = undefined;
+      await user.save();
+      throw new BadRequestException('Unable to send reset email right now');
+    }
 
     return {
       message: 'If that email exists, a reset link has been sent.',
