@@ -6,35 +6,55 @@ export type ProductDocument = Product & Document;
 @Schema({ timestamps: true })
 export class Product {
   @Prop({ required: true })
-  productName: string;
+  productName!: string;
 
   @Prop({ required: true, unique: true })
-  productId: string; // SKU
+  productId!: string; // SKU
 
   @Prop({ required: true })
-  category: string;
+  category!: string;
 
   @Prop({ required: true, default: 0 })
-  stock: number;
+  stock!: number;
 
   @Prop({ required: true })
-  price: number;
+  price!: number;
 
   @Prop({ required: true })
-  description: string;
+  description!: string;
 
   @Prop({ default: false })
-  personalizationEnabled: boolean;
+  personalizationEnabled!: boolean;
 
-  @Prop({ type: [String], default: [] })
-  personalization: string[];
+  @Prop({
+    type: [
+      {
+        label: { type: String, required: true },
+        image: {
+          type: {
+            secure_url: String,
+            public_id: String,
+          },
+          default: null,
+        },
+      },
+    ],
+    default: [],
+  })
+  personalization!: Array<{
+    label: string;
+    image: {
+      secure_url: string;
+      public_id: string;
+    } | null;
+  }>;
 
   @Prop({
     required: true,
     enum: ['In Stock', 'Low Stock', 'Out of Stock'],
     default: 'In Stock',
   })
-  status: string;
+  status!: string;
 
   @Prop({
     type: {
@@ -43,7 +63,7 @@ export class Product {
     },
     default: null,
   })
-  primaryImage:
+  primaryImage!:
     | {
         secure_url: string;
         public_id: string;
@@ -59,7 +79,7 @@ export class Product {
     ],
     default: [],
   })
-  galleryImages: Array<{
+  galleryImages!: Array<{
     secure_url: string;
     public_id: string;
   }>;
@@ -75,7 +95,7 @@ export class Product {
     ],
     default: [],
   })
-  stockHistory: Array<{
+  stockHistory!: Array<{
     previousStock: number;
     newStock: number;
     changedBy: string;
@@ -83,10 +103,10 @@ export class Product {
   }>;
 
   @Prop({ type: Date, default: Date.now })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Prop({ type: Date, default: Date.now })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);

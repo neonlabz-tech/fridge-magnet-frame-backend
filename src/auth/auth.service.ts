@@ -3,8 +3,10 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { CustomerService } from '../customer/customer.service';
 import * as bcrypt from 'bcrypt';
@@ -13,11 +15,12 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as crypto from 'crypto';
-import { ConfigService } from '@nestjs/config';
-import { MailService } from '../mail/mail.service';
+import { MailService } from './mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
@@ -45,7 +48,6 @@ export class AuthService {
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
-      console.warn(`[Auth] Login failed – no account for: ${loginDto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -58,9 +60,6 @@ export class AuthService {
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
 
     if (!passwordValid) {
-      console.warn(
-        `[Auth] Login failed – wrong password for: ${loginDto.email}`,
-      );
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -77,8 +76,11 @@ export class AuthService {
       role: user.role,
     };
 
+    const token = this.jwtService.sign(payload);
+
     return {
-      token: this.jwtService.sign(payload),
+      token,
+      access_token: token,
       user: {
         id: user._id,
         fullName: user.fullName,
@@ -108,14 +110,23 @@ export class AuthService {
       fullName: registerDto.fullName,
     });
 
+    const payload = {
+      email: user.email,
+      sub: user._id.toString(),
+      role: user.role,
+    };
+    const token = this.jwtService.sign(payload);
+
     return {
-      message: 'Registration successful. Your account is awaiting approval.',
+      message: 'Registration successful. Please sign in.',
+      token,
+      access_token: token,
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
-        isActive: false,
+        isActive: true,
       },
     };
   }
@@ -128,46 +139,35 @@ export class AuthService {
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = await bcrypt.hash(resetToken, 10);
+
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     user.passwordResetToken = hashedToken;
-    user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
+    user.passwordResetExpires = expiresAt;
     await user.save();
 
-    const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const frontendBaseUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
-    const resetLink = `${frontendUrl.replace(
-      /\/$/,
-      '',
-    )}/reset-password?token=${encodeURIComponent(resetToken)}`;
+    const resetLink = `${frontendBaseUrl}/reset-password?token=${resetToken}`;
 
-    try {
-      await this.mailService.sendMail({
-        to: user.email,
-        subject: 'Reset your Magnify password',
-        text: `Use this link to reset your password (valid for 15 minutes):\n\n${resetLink}`,
-      });
-    } catch {
-      user.passwordResetToken = undefined;
-      user.passwordResetExpires = undefined;
-      await user.save();
-      throw new BadRequestException('Unable to send reset email right now');
-    }
+    await this.mailService.sendPasswordResetEmail(user.email, resetLink);
 
-    return { message: 'If that email exists, a reset link has been sent.' };
+    return {
+      message: 'If that email exists, a reset link has been sent.',
+      ...(process.env.NODE_ENV !== 'production' && { resetToken }),
+    };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
     const user = await this.usersService.findByResetToken(dto.token);
 
-    if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    const isValid = await bcrypt.compare(dto.token, user.passwordResetToken);
-
-    if (!isValid) {
+    if (!user || !user.passwordResetExpires) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
