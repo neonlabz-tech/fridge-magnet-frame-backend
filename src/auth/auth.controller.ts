@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Patch,
   Post,
   Request,
@@ -30,16 +31,19 @@ export class AuthController {
 	}
 
 	@Post('login')
+	@HttpCode(200)
 	async login(@Body() loginDto: LoginDto) {
 		return this.authService.login(loginDto);
 	}
 
 	@Post('forgot-password')
+	@HttpCode(200)
 	async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
 		return this.authService.forgotPassword(forgotPasswordDto);
 	}
 
 	@Post('reset-password')
+	@HttpCode(200)
 	async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
 		return this.authService.resetPassword(resetPasswordDto);
 	}

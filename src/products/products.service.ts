@@ -32,6 +32,7 @@ export class ProductsService {
     createProductDto: CreateProductDto,
     primaryImageFile?: Express.Multer.File,
     galleryImageFiles?: Express.Multer.File[],
+    personalizationImageFiles?: Record<string, Express.Multer.File>,
   ) {
     try {
       const existingProduct = await this.productModel.findOne({
@@ -61,6 +62,39 @@ export class ProductsService {
             galleryImageFiles,
             'products/gallery',
           );
+      }
+
+      // Upload each personalization option's image (if attached) and embed the URL
+      if (Array.isArray(productData.personalization)) {
+        const hasAnyImageFiles =
+          personalizationImageFiles &&
+          Object.keys(personalizationImageFiles).length > 0;
+
+        if (hasAnyImageFiles) {
+          productData.personalization = await Promise.all(
+            productData.personalization.map(async (option: any) => {
+              const file = option.imageField
+                ? personalizationImageFiles![option.imageField]
+                : undefined;
+
+              if (!file) {
+                return { label: option.label, image: null };
+              }
+
+              const uploaded = await this.cloudinaryService.uploadImage(
+                file,
+                'products/personalization',
+              );
+
+              return { label: option.label, image: uploaded };
+            }),
+          );
+        } else {
+          // No images attached at all — just keep labels, drop the imageField reference
+          productData.personalization = productData.personalization.map(
+            (option: any) => ({ label: option.label, image: null }),
+          );
+        }
       }
 
       const product = await this.productModel.create(productData);

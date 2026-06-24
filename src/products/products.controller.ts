@@ -25,9 +25,21 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  private normalizePersonalization(input: unknown): string[] {
+  private normalizePersonalization(
+    input: unknown,
+  ): { label: string; imageField: string | null }[] {
+    const toEntry = (item: any): { label: string; imageField: string | null } => {
+      if (item && typeof item === 'object') {
+        return {
+          label: String(item.label ?? ''),
+          imageField: item.imageField ?? null,
+        };
+      }
+      return { label: String(item), imageField: null };
+    };
+
     if (Array.isArray(input)) {
-      return input.map((item) => String(item));
+      return input.map(toEntry);
     }
 
     if (typeof input === 'string') {
@@ -37,20 +49,20 @@ export class ProductsController {
       try {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) {
-          return parsed.map((item) => String(item));
+          return parsed.map(toEntry);
         }
       } catch {
-        // Not a JSON array string; treat as single value
+        // Not a JSON array string; treat as a single plain label
       }
 
-      return [value];
+      return [{ label: value, imageField: null }];
     }
 
     if (input === undefined || input === null) {
       return [];
     }
 
-    return [String(input)];
+    return [{ label: String(input), imageField: null }];
   }
 
   @Post()
@@ -59,6 +71,10 @@ export class ProductsController {
       [
         { name: 'primaryImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 },
+        ...Array.from({ length: 10 }, (_, i) => ({
+          name: `personalizationImage_${i}`,
+          maxCount: 1,
+        })),
       ],
       { storage: memoryStorage() },
     ),
@@ -69,6 +85,7 @@ export class ProductsController {
     files: {
       primaryImage?: Express.Multer.File[];
       galleryImages?: Express.Multer.File[];
+      [key: string]: Express.Multer.File[] | undefined;
     },
   ) {
     // Trim keys and parse form-data fields
@@ -85,15 +102,24 @@ export class ProductsController {
       personalizationEnabled:
         trimmedDto.personalizationEnabled === true ||
         trimmedDto.personalizationEnabled === 'true',
-        personalization: this.normalizePersonalization(
+      personalization: this.normalizePersonalization(
         trimmedDto.personalization,
       ),
     };
+
+    // Collect each personalization option's image file (if any) keyed by its field name
+    const personalizationImageFiles: Record<string, Express.Multer.File> = {};
+    for (const key in files) {
+      if (key.startsWith('personalizationImage_') && files[key]?.[0]) {
+        personalizationImageFiles[key] = files[key]![0];
+      }
+    }
 
     return this.productsService.create(
       parsedDto,
       files?.primaryImage?.[0],
       files?.galleryImages,
+      personalizationImageFiles,
     );
   }
 

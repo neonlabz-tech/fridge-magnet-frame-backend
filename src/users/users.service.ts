@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User } from '../schemas/user.schema';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -21,7 +22,7 @@ export class UsersService {
       password: hashedPassword,
       role,
       fullName,
-      isActive: role === 'admin',
+      isActive: true,
     });
     return createdUser.save();
   }
@@ -31,17 +32,11 @@ export class UsersService {
   }
   
   async findByResetToken(token: string): Promise<User | null> {
-    // Find all users with a reset token set, then compare with bcrypt
-    const candidates = await this.userModel.find({ 
-      passwordResetToken: { $exists: true, $ne: null } 
-    }).exec();
-    
-    for (const user of candidates) {
-      if (user.passwordResetToken && await bcrypt.compare(token, user.passwordResetToken)) {
-        return user;
-      }
-    }
-    return null;
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token.trim())
+      .digest('hex');
+    return this.userModel.findOne({ passwordResetToken: hashedToken }).exec();
   }
   
   async findAll(): Promise<User[]> {
