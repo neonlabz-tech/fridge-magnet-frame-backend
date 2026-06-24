@@ -1,5 +1,0 @@
-{
-  "error" : 401,
-  "reason" : "Unauthorized",
-  "detail" : "You are not authorized for this resource."
-}

@@ -48,7 +48,6 @@ export class AuthService {
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
-      console.warn(`[Auth] Login failed – no account for: ${loginDto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -61,9 +60,6 @@ export class AuthService {
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
 
     if (!passwordValid) {
-      console.warn(
-        `[Auth] Login failed – wrong password for: ${loginDto.email}`,
-      );
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -136,16 +132,12 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    this.logger.log(`[STEP 1] Forgot-password request received for email: ${dto.email}`);
-
     const user = await this.usersService.findByEmail(dto.email);
 
     if (!user) {
-      this.logger.log(
-        `[STEP 1] Email not found in database — returning generic success (anti-enumeration).`,
-      );
       return { message: 'If that email exists, a reset link has been sent.' };
     }
+
     const resetToken = crypto.randomBytes(32).toString('hex');
 
     const hashedToken = crypto
@@ -159,21 +151,12 @@ export class AuthService {
     user.passwordResetExpires = expiresAt;
     await user.save();
 
-    this.logger.log(
-      `[STEP 2] Reset token generated and persisted for user: ${user.email}. ` +
-      `Expires at: ${expiresAt.toISOString()}`,
-    );
-
     const frontendBaseUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
     const resetLink = `${frontendBaseUrl}/reset-password?token=${resetToken}`;
 
-    this.logger.log(`[STEP 3] Dispatching password-reset email to: ${user.email}`);
-
     await this.mailService.sendPasswordResetEmail(user.email, resetLink);
-
-    this.logger.log(`[STEP 4] Password-reset flow completed successfully for: ${user.email}`);
 
     return {
       message: 'If that email exists, a reset link has been sent.',
@@ -182,19 +165,13 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    this.logger.log(`[RESET] Reset-password attempt with provided token.`);
-
     const user = await this.usersService.findByResetToken(dto.token);
 
     if (!user || !user.passwordResetExpires) {
-      this.logger.warn(`[RESET] No user found for the provided reset token.`);
       throw new BadRequestException('Invalid or expired reset token');
     }
 
     if (user.passwordResetExpires < new Date()) {
-      this.logger.warn(
-        `[RESET] Token expired at ${user.passwordResetExpires.toISOString()} for user: ${user.email}`,
-      );
       throw new BadRequestException('Reset token expired');
     }
 
@@ -202,8 +179,6 @@ export class AuthService {
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save();
-
-    this.logger.log(`[RESET] ✅ Password reset successfully for user: ${user.email}`);
 
     return { message: 'Password reset successful' };
   }
