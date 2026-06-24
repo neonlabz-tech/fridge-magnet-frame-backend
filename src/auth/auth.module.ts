@@ -8,6 +8,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { CustomerModule } from '../customer/customer.module';
 import { PassportModule } from '@nestjs/passport';
+import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { ValidationPipe } from '@nestjs/common';
 // BUG-009 FIX: Import the new MailService.
 import { MailService } from './mail.service';
@@ -28,6 +29,7 @@ import { MailService } from './mail.service';
     }),
     UsersModule,
     CustomerModule,
+    CloudinaryModule,
   ],
   controllers: [AuthController],
   // BUG-009 FIX: MailService is added here so NestJS's DI container

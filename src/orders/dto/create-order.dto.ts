@@ -63,6 +63,10 @@ export class CreateOrderDto {
 
   @IsOptional()
   @IsString()
+  district?: string;
+
+  @IsOptional()
+  @IsString()
   adminNote?: string;
 
   @IsOptional()
