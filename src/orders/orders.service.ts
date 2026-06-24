@@ -84,6 +84,7 @@ export class OrdersService {
         { orderId: { $regex: search, $options: 'i' } },
         { customerName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
+        { district: { $regex: search, $options: 'i' } },
       ];
     }
 
