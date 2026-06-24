@@ -25,9 +25,14 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  private normalizePersonalization(input: unknown): string[] {
+  // Normalizes personalization input into { label: string }[]
+  // Handles: array of {label} objects, array of plain strings (legacy),
+  // a JSON string, or a comma-separated string.
+  private normalizePersonalization(input: unknown): { label: string }[] {
     if (Array.isArray(input)) {
-      return input.map((item) => String(item));
+      return input.map((item) =>
+        typeof item === 'string' ? { label: item } : { label: (item as any)?.label ?? '' },
+      );
     }
 
     if (typeof input === 'string') {
@@ -37,20 +42,27 @@ export class ProductsController {
       try {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) {
-          return parsed.map((item) => String(item));
+          return parsed.map((item) =>
+            typeof item === 'string' ? { label: item } : { label: item?.label ?? '' },
+          );
         }
       } catch {
-        // Not a JSON array string; treat as single value
+        // Not JSON — treat as comma-separated legacy list
+        return value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((label) => ({ label }));
       }
 
-      return [value];
+      return [{ label: value }];
     }
 
     if (input === undefined || input === null) {
       return [];
     }
 
-    return [String(input)];
+    return [{ label: String(input) }];
   }
 
   @Post()
@@ -59,6 +71,7 @@ export class ProductsController {
       [
         { name: 'primaryImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 },
+        { name: 'personalizationImages', maxCount: 10 },
       ],
       { storage: memoryStorage() },
     ),
@@ -69,6 +82,7 @@ export class ProductsController {
     files: {
       primaryImage?: Express.Multer.File[];
       galleryImages?: Express.Multer.File[];
+      personalizationImages?: Express.Multer.File[];
     },
   ) {
     // Trim keys and parse form-data fields
@@ -78,6 +92,16 @@ export class ProductsController {
       trimmedDto[trimmedKey] = createProductDto[key];
     }
 
+    const personalizationLabels = this.normalizePersonalization(
+      trimmedDto.personalization,
+    );
+
+    // Stitch labels with uploaded images by index order
+    const personalizationWithFiles = personalizationLabels.map((item, index) => ({
+      label: item.label,
+      imageFile: files?.personalizationImages?.[index] ?? null,
+    }));
+
     const parsedDto: any = {
       ...trimmedDto,
       stock: trimmedDto.stock ? Number(trimmedDto.stock) : 0,
@@ -85,15 +109,14 @@ export class ProductsController {
       personalizationEnabled:
         trimmedDto.personalizationEnabled === true ||
         trimmedDto.personalizationEnabled === 'true',
-        personalization: this.normalizePersonalization(
-        trimmedDto.personalization,
-      ),
     };
+    delete parsedDto.personalization; // service builds this from personalizationWithFiles
 
     return this.productsService.create(
       parsedDto,
       files?.primaryImage?.[0],
       files?.galleryImages,
+      personalizationWithFiles,
     );
   }
 
@@ -148,14 +171,63 @@ export class ProductsController {
 
   @Put(':id')
   @UseInterceptors(
-    FileInterceptor('primaryImage', { storage: memoryStorage() }),
+    FileFieldsInterceptor(
+      [
+        { name: 'primaryImage', maxCount: 1 },
+        { name: 'personalizationImages', maxCount: 10 },
+      ],
+      { storage: memoryStorage() },
+    ),
   )
   async update(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
-    @UploadedFile() primaryImage?: Express.Multer.File,
+    @UploadedFiles()
+    files: {
+      primaryImage?: Express.Multer.File[];
+      personalizationImages?: Express.Multer.File[];
+    },
   ) {
-    return this.productsService.update(id, updateProductDto, primaryImage);
+    const trimmedDto: any = {};
+    for (const key in updateProductDto) {
+      const trimmedKey = key.trim();
+      trimmedDto[trimmedKey] = updateProductDto[key];
+    }
+
+    const parsedDto: any = { ...trimmedDto };
+
+    if (trimmedDto.stock !== undefined) {
+      parsedDto.stock = Number(trimmedDto.stock) || 0;
+    }
+    if (trimmedDto.price !== undefined) {
+      parsedDto.price = Number(trimmedDto.price) || 0;
+    }
+    if (trimmedDto.personalizationEnabled !== undefined) {
+      parsedDto.personalizationEnabled =
+        trimmedDto.personalizationEnabled === true ||
+        trimmedDto.personalizationEnabled === 'true';
+    }
+
+    let personalizationWithFiles: { label: string; imageFile: Express.Multer.File | null }[] | undefined;
+
+    if (trimmedDto.personalization !== undefined) {
+      const personalizationLabels = this.normalizePersonalization(
+        trimmedDto.personalization,
+      );
+      personalizationWithFiles = personalizationLabels.map((item, index) => ({
+        label: item.label,
+        imageFile: files?.personalizationImages?.[index] ?? null,
+      }));
+      delete parsedDto.personalization; // service builds this from personalizationWithFiles
+    }
+
+    return this.productsService.update(
+      id,
+      parsedDto,
+      files?.primaryImage?.[0],
+      undefined, // galleryImages handled via separate /gallery endpoint
+      personalizationWithFiles,
+    );
   }
 
   @Delete(':id')

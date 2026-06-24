@@ -26,8 +26,25 @@ export class Product {
   @Prop({ default: false })
   personalizationEnabled: boolean;
 
-  @Prop({ type: [String], default: [] })
-  personalization: string[];
+  @Prop({
+    type: [
+      {
+        label: { type: String, required: true },
+        image: {
+          type: {
+            secure_url: { type: String },
+            public_id: { type: String },
+          },
+          default: null,
+        },
+      },
+    ],
+    default: [],
+  })
+  personalization: Array<{
+    label: string;
+    image: { secure_url: string; public_id: string } | null;
+  }>;
 
   @Prop({
     required: true,

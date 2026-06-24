@@ -11,6 +11,11 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
+interface PersonalizationInput {
+  label: string;
+  imageFile: Express.Multer.File | null;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -28,10 +33,23 @@ export class ProductsService {
     return 'Out of Stock';
   }
 
+  // Converts a raw personalization array (could be legacy strings or new objects) into a consistent shape
+  private normalizePersonalization(
+    raw: any[] | undefined | null,
+  ): Array<{ label: string; image: { secure_url: string; public_id: string } | null }> {
+    if (!raw || !Array.isArray(raw)) return [];
+    return raw.map((item) =>
+      typeof item === 'string'
+        ? { label: item, image: null }
+        : { label: item?.label ?? '', image: item?.image ?? null },
+    );
+  }
+
   async create(
     createProductDto: CreateProductDto,
     primaryImageFile?: Express.Multer.File,
     galleryImageFiles?: Express.Multer.File[],
+    personalizationInputs?: PersonalizationInput[],
   ) {
     try {
       const existingProduct = await this.productModel.findOne({
@@ -61,6 +79,30 @@ export class ProductsService {
             galleryImageFiles,
             'products/gallery',
           );
+      }
+
+      // Build personalization array with uploaded images
+      if (personalizationInputs && personalizationInputs.length > 0) {
+        productData.personalization = await Promise.all(
+          personalizationInputs.map(async (item) => {
+            if (!item.imageFile) {
+              return { label: item.label, image: null };
+            }
+            const uploaded = await this.cloudinaryService.uploadImage(
+              item.imageFile,
+              'products/personalization',
+            );
+            return {
+              label: item.label,
+              image: {
+                secure_url: uploaded.secure_url,
+                public_id: uploaded.public_id,
+              },
+            };
+          }),
+        );
+      } else {
+        productData.personalization = [];
       }
 
       const product = await this.productModel.create(productData);
@@ -180,6 +222,7 @@ export class ProductsService {
     updateProductDto: UpdateProductDto,
     primaryImageFile?: Express.Multer.File,
     galleryImageFiles?: Express.Multer.File[],
+    personalizationInputs?: PersonalizationInput[],
   ) {
     try {
       const product = await this.productModel.findById(id).exec();
@@ -245,6 +288,57 @@ export class ProductsService {
             galleryImageFiles,
             'products/gallery',
           );
+      }
+
+      // Handle personalization options + their images
+      if (personalizationInputs !== undefined) {
+        const existingNormalized = this.normalizePersonalization(
+          product.personalization as any[],
+        );
+
+        updateData.personalization = await Promise.all(
+          personalizationInputs.map(async (item, index) => {
+            const existingEntry = existingNormalized[index];
+
+            if (!item.imageFile) {
+              // No new image for this slot — keep existing image only if label unchanged
+              return {
+                label: item.label,
+                image:
+                  existingEntry?.label === item.label ? existingEntry.image : null,
+              };
+            }
+
+            // New image uploaded — delete old one first if it exists
+            if (existingEntry?.image?.public_id) {
+              await this.cloudinaryService.deleteImage(existingEntry.image.public_id);
+            }
+
+            const uploaded = await this.cloudinaryService.uploadImage(
+              item.imageFile,
+              'products/personalization',
+            );
+
+            return {
+              label: item.label,
+              image: {
+                secure_url: uploaded.secure_url,
+                public_id: uploaded.public_id,
+              },
+            };
+          }),
+        );
+
+        // Cleanup: if old array had MORE entries than the new one (options removed),
+        // delete those removed options' images from Cloudinary
+        if (existingNormalized.length > personalizationInputs.length) {
+          const removedEntries = existingNormalized.slice(personalizationInputs.length);
+          await Promise.all(
+            removedEntries
+              .filter((entry) => entry.image?.public_id)
+              .map((entry) => this.cloudinaryService.deleteImage(entry.image!.public_id)),
+          );
+        }
       }
 
       updateData.updatedAt = new Date();
@@ -329,6 +423,16 @@ export class ProductsService {
         });
       }
 
+      // Clean up personalization option images too
+      const normalizedPersonalization = this.normalizePersonalization(
+        product.personalization as any[],
+      );
+      normalizedPersonalization.forEach((entry) => {
+        if (entry.image?.public_id) {
+          imagePublicIds.push(entry.image.public_id);
+        }
+      });
+
       if (imagePublicIds.length > 0) {
         try {
           await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
@@ -394,6 +498,15 @@ export class ProductsService {
         product.galleryImages = product.galleryImages.filter(
           (img) => img.public_id !== publicId,
         );
+      } else if (product.personalization && product.personalization.length > 0) {
+        // Remove the image reference from a personalization option if it matches
+        product.personalization = (product.personalization as any[]).map((entry) => {
+          if (typeof entry === 'string') return entry;
+          if (entry?.image?.public_id === publicId) {
+            return { label: entry.label, image: null };
+          }
+          return entry;
+        }) as any;
       }
 
       product.updatedAt = new Date();
