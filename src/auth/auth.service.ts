@@ -8,7 +8,6 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
-import { CustomerService } from '../customer/customer.service';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -26,7 +25,6 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
-    private customerService: CustomerService,
     private mailService: MailService,
     private configService: ConfigService,
     private cloudinaryService: CloudinaryService,
@@ -67,7 +65,7 @@ export class AuthService {
     }
 
     if (user.role === 'user') {
-      await this.customerService.ensureForRegisteredUser({
+      await this.usersService.ensureForRegisteredUser({
         email: user.email,
         fullName: user.fullName,
       });
@@ -108,7 +106,7 @@ export class AuthService {
       registerDto.fullName,
     );
 
-    await this.customerService.ensureForRegisteredUser({
+    await this.usersService.ensureForRegisteredUser({
       email: user.email,
       fullName: registerDto.fullName,
     });

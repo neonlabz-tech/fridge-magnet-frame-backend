@@ -13,7 +13,6 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { OrdersModule } from './orders/orders.module';
-import { CustomerModule } from './customer/customer.module';
 import { ProductsModule } from './products/products.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MailModule } from './mail/mail.module';
@@ -47,7 +46,6 @@ const logger = new Logger('MongoDB');
     AuthModule,
     UsersModule,
     OrdersModule,
-    CustomerModule,
     ProductsModule,
     CloudinaryModule,
     MailModule,

@@ -4,12 +4,12 @@ import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { Order, OrderSchema } from './schemas/order.schema';
 import { Product, ProductSchema } from '../products/schemas/product.schema';
-import { CustomerModule } from '../customer/customer.module';
+import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
-    CustomerModule,
+    UsersModule,
     MailModule,
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },

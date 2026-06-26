@@ -1,13 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User } from '../schemas/user.schema';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { CreateCustomerDto } from './dto/create-customer.dto';
+import { UpdateCustomerDto } from './dto/update-customer.dto';
 
 @Injectable()
 export class UsersService {
   constructor(@InjectModel(User.name) private userModel: Model<User>) {}
+
+  // ── Core auth methods ─────────────────────────────────────────────────────
 
   async create(
     email: string,
@@ -96,6 +104,8 @@ export class UsersService {
     return this.create(email, password, 'admin');
   }
 
+  // ── Low-level customer helpers ────────────────────────────────────────────
+
   async findAllByRole(role: string): Promise<User[]> {
     return this.userModel
       .find({ role })
@@ -161,5 +171,215 @@ export class UsersService {
       .findOne({ email: email.toLowerCase(), role: 'user' })
       .select('-password')
       .exec();
+  }
+
+  // ── Customer serialization & phone helpers ────────────────────────────────
+
+  private serializeCustomer(user: any) {
+    return {
+      _id: user._id,
+      recordId: user._id,
+      customerId: user.customerId ?? '',
+      customerName: user.fullName ?? user.email?.split('@')[0] ?? 'Customer',
+      emailAddress: user.email,
+      phoneNumber: user.phoneNumber ?? 'Not provided',
+      customerAddress: user.customerAddress ?? 'Not provided',
+      isActive: user.isActive === true,
+      createdAt: user.createdAt,
+      source: 'user' as const,
+    };
+  }
+
+  private normalisePhone(raw?: string): string {
+    if (!raw) return '0000000000';
+    const digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('94') && digits.length === 11) {
+      return `0${digits.slice(2)}`;
+    }
+    return digits.length >= 10 ? digits.slice(-10) : '0000000000';
+  }
+
+  // ── Customer CRUD (called by CustomersController) ─────────────────────────
+
+  async createCustomer(dto: CreateCustomerDto): Promise<any> {
+    const email = dto.emailAddress.toLowerCase();
+
+    const existing = await this.findByEmail(email);
+    if (existing) {
+      throw new ConflictException(
+        `Customer with email "${dto.emailAddress}" already exists`,
+      );
+    }
+
+    const randomPassword = crypto.randomUUID();
+    const user = await this.create(email, randomPassword, 'user', dto.customerName, {
+      phoneNumber: dto.phoneNumber,
+      customerAddress: dto.customerAddress,
+    });
+
+    await this.generateAndAssignCustomerId((user._id as any).toString());
+
+    const fresh = await this.findById((user._id as any).toString());
+    return this.serializeCustomer(fresh);
+  }
+
+  async findCustomerByEmailAddress(email: string): Promise<any | null> {
+    const user = await this.findCustomerByEmail(email);
+    return user ? this.serializeCustomer(user) : null;
+  }
+
+  async findAllCustomers(
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const allUsers = await this.findAllByRole('user');
+    const total = allUsers.length;
+    const skip = (page - 1) * limit;
+    const data = allUsers
+      .slice(skip, skip + limit)
+      .map((u) => this.serializeCustomer(u));
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async findOneCustomer(id: string): Promise<any> {
+    const user = await this.findCustomerByIdOrCustomerId(id);
+    if (!user) throw new NotFoundException(`Customer with ID "${id}" not found`);
+    return this.serializeCustomer(user);
+  }
+
+  async updateCustomer(id: string, dto: UpdateCustomerDto): Promise<any> {
+    const existing = await this.findCustomerByIdOrCustomerId(id);
+    if (!existing) throw new NotFoundException(`Customer with ID "${id}" not found`);
+
+    if (dto.emailAddress) {
+      const clash = await this.findByEmail(dto.emailAddress.toLowerCase());
+      if (
+        clash &&
+        (clash._id as any).toString() !== (existing._id as any).toString()
+      ) {
+        throw new ConflictException(
+          `Customer with email "${dto.emailAddress}" already exists`,
+        );
+      }
+    }
+
+    const fields: Record<string, any> = {};
+    if (dto.customerName !== undefined) fields.fullName = dto.customerName;
+    if (dto.emailAddress !== undefined)
+      fields.email = dto.emailAddress.toLowerCase();
+    if (dto.phoneNumber !== undefined) fields.phoneNumber = dto.phoneNumber;
+    if (dto.customerAddress !== undefined)
+      fields.customerAddress = dto.customerAddress;
+
+    const updated = await this.updateCustomerFields(
+      (existing._id as any).toString(),
+      fields,
+    );
+    return this.serializeCustomer(updated);
+  }
+
+  async removeCustomer(id: string): Promise<any> {
+    const existing = await this.findCustomerByIdOrCustomerId(id);
+    if (!existing) throw new NotFoundException(`Customer with ID "${id}" not found`);
+
+    const updated = await this.updateCustomerFields(
+      (existing._id as any).toString(),
+      { isActive: false },
+    );
+    return this.serializeCustomer(updated);
+  }
+
+  async setCustomerActiveStatus(
+    id: string,
+    isActive: boolean,
+    _source: 'user' | 'customer',
+  ): Promise<any> {
+    const existing = await this.findCustomerByIdOrCustomerId(id);
+
+    if (!existing) {
+      const byId = await this.updateActiveStatus(id, isActive);
+      if (!byId) throw new NotFoundException(`Customer with ID "${id}" not found`);
+      return byId;
+    }
+
+    const updated = await this.updateActiveStatus(
+      (existing._id as any).toString(),
+      isActive,
+    );
+    return this.serializeCustomer(updated);
+  }
+
+  // ── Methods called by AuthService / OrdersService ─────────────────────────
+
+  async ensureForRegisteredUser(user: {
+    email: string;
+    fullName?: string;
+  }): Promise<any> {
+    const existing = await this.findByEmail(user.email);
+    if (!existing || existing.role !== 'user') return null;
+
+    if (!existing.customerId) {
+      await this.generateAndAssignCustomerId((existing._id as any).toString());
+    }
+
+    const fresh = await this.findById((existing._id as any).toString());
+    return this.serializeCustomer(fresh);
+  }
+
+  async updateFromOrder(order: {
+    email: string;
+    customerName: string;
+    phone?: string;
+    shippingAddress: string;
+  }): Promise<any> {
+    const email = order.email.trim().toLowerCase();
+    const phoneNumber = this.normalisePhone(order.phone);
+
+    const user = await this.findByEmail(email);
+
+    if (user) {
+      const fields: Record<string, any> = {
+        phoneNumber,
+        customerAddress: order.shippingAddress.trim(),
+      };
+      if (!user.fullName && order.customerName?.trim()) {
+        fields.fullName = order.customerName.trim();
+      }
+
+      const updated = await this.updateCustomerFields(
+        (user._id as any).toString(),
+        fields,
+      );
+
+      if (!user.customerId) {
+        await this.generateAndAssignCustomerId((user._id as any).toString());
+      }
+
+      return this.serializeCustomer(updated);
+    }
+
+    const randomPassword = crypto.randomUUID();
+    const newUser = await this.create(
+      email,
+      randomPassword,
+      'user',
+      order.customerName.trim(),
+      {
+        phoneNumber,
+        customerAddress: order.shippingAddress.trim(),
+      },
+    );
+
+    await this.generateAndAssignCustomerId((newUser._id as any).toString());
+
+    const fresh = await this.findById((newUser._id as any).toString());
+    return this.serializeCustomer(fresh);
   }
 }
