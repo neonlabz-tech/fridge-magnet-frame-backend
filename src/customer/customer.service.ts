@@ -3,70 +3,130 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { Customer, CustomerDocument } from './customer.schema';
+import { UsersService } from '../users/users.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
-import { UsersService } from '../users/users.service';
 
+/**
+ * CustomerService — single source of truth is now the `users` collection.
+ *
+ * The `customers` MongoDB collection is kept alive only during the migration
+ * window.  Once you have run the migration script and verified the data, you
+ * can drop the `customers` collection and remove the MongooseModule
+ * registration from CustomerModule.
+ *
+ * Every public method keeps the same signature it had before so that
+ * AuthService, OrdersService, and CustomerController compile unchanged.
+ */
 @Injectable()
 export class CustomerService {
-  constructor(
-    @InjectModel(Customer.name)
-    private readonly customerModel: Model<CustomerDocument>,
-    private readonly usersService: UsersService,
-  ) {}
+  constructor(private readonly usersService: UsersService) {}
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
   /**
-   * Create a new customer.
-   * Checks for duplicate email before saving.
+   * Serialize a User document into the shape the admin Customers page expects.
+   * The frontend already accepts both `customerName/emailAddress` and
+   * `name/email`, but we return the canonical names to stay consistent.
    */
-  async create(createCustomerDto: CreateCustomerDto): Promise<CustomerDocument> {
-    const existingCustomer = await this.customerModel.findOne({
-      emailAddress: createCustomerDto.emailAddress.toLowerCase(),
-    });
+  private serialize(user: any) {
+    return {
+      _id: user._id,
+      recordId: user._id,
+      customerId: user.customerId ?? '',
+      customerName: user.fullName ?? user.email?.split('@')[0] ?? 'Customer',
+      emailAddress: user.email,
+      phoneNumber: user.phoneNumber ?? 'Not provided',
+      customerAddress: user.customerAddress ?? 'Not provided',
+      isActive: user.isActive === true,
+      createdAt: user.createdAt,
+      source: 'user' as const,
+    };
+  }
 
-    if (existingCustomer) {
+  private normalisePhone(raw?: string): string {
+    if (!raw) return '0000000000';
+    const digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('94') && digits.length === 11) {
+      return `0${digits.slice(2)}`;
+    }
+    return digits.length >= 10 ? digits.slice(-10) : '0000000000';
+  }
+
+  // ── Public API (same signatures as before) ────────────────────────────────
+
+  /**
+   * Create a brand-new customer (called from the admin "Add Customer" modal).
+   * Creates a `users` document with role:'user'.
+   * A random password is set — the customer can reset it via forgot-password.
+   */
+  async create(dto: CreateCustomerDto): Promise<any> {
+    const email = dto.emailAddress.toLowerCase();
+
+    const existing = await this.usersService.findByEmail(email);
+    if (existing) {
       throw new ConflictException(
-        `Customer with email "${createCustomerDto.emailAddress}" already exists`,
+        `Customer with email "${dto.emailAddress}" already exists`,
       );
     }
 
-    const customer = new this.customerModel(createCustomerDto);
-    return customer.save();
+    const randomPassword = require('crypto').randomUUID();
+    const user = await this.usersService.create(
+      email,
+      randomPassword,
+      'user',
+      dto.customerName,
+      {
+        phoneNumber: dto.phoneNumber,
+        customerAddress: dto.customerAddress,
+      },
+    );
+
+    await this.usersService.generateAndAssignCustomerId(
+      (user._id as any).toString(),
+    );
+
+    const fresh = await this.usersService.findById(
+      (user._id as any).toString(),
+    );
+    return this.serialize(fresh);
   }
 
-  async findByEmail(emailAddress: string): Promise<CustomerDocument | null> {
-    return this.customerModel
-      .findOne({ emailAddress: emailAddress.toLowerCase() })
-      .exec();
-  }
-
-  async ensureForRegisteredUser(user: {
-    email: string;
-    fullName?: string;
-  }): Promise<CustomerDocument> {
-    const existingCustomer = await this.findByEmail(user.email);
-
-    if (existingCustomer) {
-      return existingCustomer;
-    }
-
-    const fallbackName = user.email.split('@')[0] || 'Website Customer';
-
-    const customer = new this.customerModel({
-      customerName: user.fullName || fallbackName,
-      emailAddress: user.email,
-      phoneNumber: '0000000000',
-      customerAddress: 'Not provided',
-    });
-
-    return customer.save();
+  async findByEmail(emailAddress: string): Promise<any | null> {
+    const user = await this.usersService.findCustomerByEmail(emailAddress);
+    return user ? this.serialize(user) : null;
   }
 
   /**
-   * Find all active customers with pagination, sorted by createdAt descending.
+   * Called on every login/register.
+   * Ensures the user has a customerId; fills in blank phone/address placeholders.
+   */
+  async ensureForRegisteredUser(user: {
+    email: string;
+    fullName?: string;
+  }): Promise<any> {
+    const existing = await this.usersService.findByEmail(user.email);
+
+    if (!existing || existing.role !== 'user') {
+      return null;
+    }
+
+    // Generate customerId if the user doesn't have one yet
+    if (!existing.customerId) {
+      await this.usersService.generateAndAssignCustomerId(
+        (existing._id as any).toString(),
+      );
+    }
+
+    const fresh = await this.usersService.findById(
+      (existing._id as any).toString(),
+    );
+    return this.serialize(fresh);
+  }
+
+  /**
+   * Paginated list of all customers for the admin dashboard.
+   * Reads only from the `users` collection (role:'user').
    */
   async findAll(
     page: number = 1,
@@ -78,66 +138,10 @@ export class CustomerService {
     limit: number;
     totalPages: number;
   }> {
-    const [customerDocs, users] = await Promise.all([
-      this.customerModel
-        .find()
-        .sort({ createdAt: -1 })
-        .exec(),
-      this.usersService.findAll(),
-    ]);
-
-    const usersByEmail = new Map(
-      users
-        .filter((user: any) => user.role === 'user')
-        .map((user: any) => [user.email?.toLowerCase(), user]),
-    );
-    const customers: any[] = customerDocs.map((customer) => {
-      const item: any = customer.toObject();
-      const registeredUser: any = usersByEmail.get(
-        item.emailAddress?.toLowerCase(),
-      );
-
-      return registeredUser
-        ? {
-            ...item,
-            recordId: registeredUser._id,
-            source: 'user',
-            isActive: registeredUser.isActive === true,
-          }
-        : { ...item, recordId: item._id, source: 'customer' };
-    });
-    const customerEmails = new Set(
-      customers.map((customer) => customer.emailAddress?.toLowerCase()),
-    );
-
-    const userCustomers: any[] = users
-      .filter(
-        (user: any) =>
-          user.role === 'user' && !customerEmails.has(user.email?.toLowerCase()),
-      )
-      .map((user: any) => ({
-        _id: user._id,
-        customerId: `USER-${String(user._id).slice(-6).toUpperCase()}`,
-        customerName:
-          user.fullName || user.email?.split('@')[0] || 'Website Customer',
-        emailAddress: user.email,
-        phoneNumber: 'Not provided',
-        customerAddress: 'Not provided',
-        recordId: user._id,
-        createdAt: user.createdAt,
-        source: 'user',
-        isActive: user.isActive === true,
-      }));
-
-    const allCustomers: any[] = [...customers, ...userCustomers].sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bTime - aTime;
-    });
-
-    const total = allCustomers.length;
+    const allUsers = await this.usersService.findAllByRole('user');
+    const total = allUsers.length;
     const skip = (page - 1) * limit;
-    const data = allCustomers.slice(skip, skip + limit);
+    const data = allUsers.slice(skip, skip + limit).map((u) => this.serialize(u));
 
     return {
       data,
@@ -149,127 +153,163 @@ export class CustomerService {
   }
 
   /**
-   * Find a single customer by MongoDB _id or customerId (#CUST-XXXX).
+   * Find a single customer by MongoDB ObjectId or customerId (#CUST-XXXX).
    */
-  async findOne(id: string): Promise<CustomerDocument> {
-    let customer: CustomerDocument | null = null;
+  async findOne(id: string): Promise<any> {
+    const user = await this.usersService.findCustomerByIdOrCustomerId(id);
 
-    if (id.startsWith('#CUST-') || id.startsWith('CUST-')) {
-      // Query by customerId field
-      const queryId = id.startsWith('#') ? id : `#${id}`;
-      customer = await this.customerModel.findOne({ customerId: queryId }).exec();
-    } else if (Types.ObjectId.isValid(id)) {
-      // Query by MongoDB _id
-      customer = await this.customerModel.findById(id).exec();
-    }
-
-    if (!customer) {
+    if (!user) {
       throw new NotFoundException(`Customer with ID "${id}" not found`);
     }
 
-    return customer;
+    return this.serialize(user);
   }
 
   /**
-   * Update a customer by MongoDB _id or customerId.
-   * Checks for duplicate email against other customers.
+   * Update customer profile fields (name, email, phone, address).
+   * Called from the admin "Edit Customer" modal via CustomerController.
    */
-  async update(
-    id: string,
-    updateCustomerDto: UpdateCustomerDto,
-  ): Promise<CustomerDocument> {
-    const customer = await this.findOne(id);
+  async update(id: string, dto: UpdateCustomerDto): Promise<any> {
+    const existing = await this.usersService.findCustomerByIdOrCustomerId(id);
 
-    // Check for duplicate email if email is being updated
-    if (updateCustomerDto.emailAddress) {
-      const existingCustomer = await this.customerModel.findOne({
-        emailAddress: updateCustomerDto.emailAddress.toLowerCase(),
-        _id: { $ne: customer._id },
-      });
+    if (!existing) {
+      throw new NotFoundException(`Customer with ID "${id}" not found`);
+    }
 
-      if (existingCustomer) {
+    // Guard against email collision
+    if (dto.emailAddress) {
+      const clash = await this.usersService.findByEmail(
+        dto.emailAddress.toLowerCase(),
+      );
+      if (clash && (clash._id as any).toString() !== (existing._id as any).toString()) {
         throw new ConflictException(
-          `Customer with email "${updateCustomerDto.emailAddress}" already exists`,
+          `Customer with email "${dto.emailAddress}" already exists`,
         );
       }
     }
 
-    const updatedCustomer = await this.customerModel
-      .findByIdAndUpdate(
-        customer._id,
-        { $set: updateCustomerDto },
-        { new: true, runValidators: true },
-      )
-      .exec();
+    const fields: Record<string, any> = {};
+    if (dto.customerName !== undefined) fields.fullName = dto.customerName;
+    if (dto.emailAddress !== undefined)
+      fields.email = dto.emailAddress.toLowerCase();
+    if (dto.phoneNumber !== undefined) fields.phoneNumber = dto.phoneNumber;
+    if (dto.customerAddress !== undefined)
+      fields.customerAddress = dto.customerAddress;
 
-    return updatedCustomer as CustomerDocument;
+    const updated = await this.usersService.updateCustomerFields(
+      (existing._id as any).toString(),
+      fields,
+    );
+
+    return this.serialize(updated);
+  }
+
+  /** Soft-disable a customer by setting isActive:false on the user document. */
+  async remove(id: string): Promise<any> {
+    const existing = await this.usersService.findCustomerByIdOrCustomerId(id);
+
+    if (!existing) {
+      throw new NotFoundException(`Customer with ID "${id}" not found`);
+    }
+
+    const updated = await this.usersService.updateCustomerFields(
+      (existing._id as any).toString(),
+      { isActive: false },
+    );
+
+    return this.serialize(updated);
   }
 
   /**
-   * Soft delete a customer by setting isActive to false.
+   * Toggle a customer's active status.
+   * The `source` parameter is kept for API backwards-compatibility
+   * but is now ignored — all customers live in `users`.
    */
-  async remove(id: string): Promise<CustomerDocument> {
-    const customer = await this.findOne(id);
-    customer.isActive = false;
-    return customer.save();
-  }
-
   async setActiveStatus(
     id: string,
     isActive: boolean,
-    source: 'user' | 'customer',
-  ): Promise<CustomerDocument | any> {
-    if (source === 'user') {
-      const user = await this.usersService.updateActiveStatus(id, isActive);
-      if (!user) {
-        throw new NotFoundException(`Registered user with ID "${id}" not found`);
-      }
+    _source: 'user' | 'customer',
+  ): Promise<any> {
+    const existing = await this.usersService.findCustomerByIdOrCustomerId(id);
 
-      await this.ensureForRegisteredUser({
-        email: user.email,
-        fullName: user.fullName,
-      });
-      await this.customerModel.updateOne(
-        { emailAddress: user.email.toLowerCase() },
-        { $set: { isActive } },
-      );
-      return user;
+    if (!existing) {
+      // Fallback: try by plain ObjectId (covers the case where recordId is an
+      // admin-managed customer whose source was 'user' before migration)
+      const byId = await this.usersService.updateActiveStatus(id, isActive);
+      if (!byId) {
+        throw new NotFoundException(`Customer with ID "${id}" not found`);
+      }
+      return byId;
     }
 
-    const customer = await this.findOne(id);
-    customer.isActive = isActive;
-    return customer.save();
+    const updated = await this.usersService.updateActiveStatus(
+      (existing._id as any).toString(),
+      isActive,
+    );
+
+    return this.serialize(updated);
   }
 
+  /**
+   * Called by OrdersService after an order is placed.
+   * Finds the user by email and updates contact/address fields.
+   * If no user exists (guest checkout), creates a new one with role:'user'.
+   */
   async updateFromOrder(order: {
     email: string;
     customerName: string;
     phone?: string;
     shippingAddress: string;
-  }): Promise<CustomerDocument> {
-    const emailAddress = order.email.trim().toLowerCase();
-    const digits = (order.phone || '').replace(/\D/g, '');
-    const phoneNumber =
-      digits.startsWith('94') && digits.length === 11
-        ? `0${digits.slice(2)}`
-        : digits.length >= 10
-          ? digits.slice(-10)
-          : '0000000000';
+  }): Promise<any> {
+    const email = order.email.trim().toLowerCase();
+    const phoneNumber = this.normalisePhone(order.phone);
 
-    const customer = await this.findByEmail(emailAddress);
-    if (customer) {
-      customer.customerName = order.customerName.trim() || customer.customerName;
-      customer.phoneNumber = phoneNumber;
-      customer.customerAddress = order.shippingAddress.trim();
-      return customer.save();
+    const user = await this.usersService.findByEmail(email);
+
+    if (user) {
+      const fields: Record<string, any> = {
+        phoneNumber,
+        customerAddress: order.shippingAddress.trim(),
+      };
+      if (!user.fullName && order.customerName?.trim()) {
+        fields.fullName = order.customerName.trim();
+      }
+
+      const updated = await this.usersService.updateCustomerFields(
+        (user._id as any).toString(),
+        fields,
+      );
+
+      // Ensure customerId exists
+      if (!user.customerId) {
+        await this.usersService.generateAndAssignCustomerId(
+          (user._id as any).toString(),
+        );
+      }
+
+      return this.serialize(updated);
     }
 
-    return new this.customerModel({
-      customerName: order.customerName.trim(),
-      emailAddress,
-      phoneNumber,
-      customerAddress: order.shippingAddress.trim(),
-      isActive: true,
-    }).save();
+    // Guest checkout — create a new user with role:'user'
+    const randomPassword = require('crypto').randomUUID();
+    const newUser = await this.usersService.create(
+      email,
+      randomPassword,
+      'user',
+      order.customerName.trim(),
+      {
+        phoneNumber,
+        customerAddress: order.shippingAddress.trim(),
+      },
+    );
+
+    await this.usersService.generateAndAssignCustomerId(
+      (newUser._id as any).toString(),
+    );
+
+    const fresh = await this.usersService.findById(
+      (newUser._id as any).toString(),
+    );
+    return this.serialize(fresh);
   }
 }

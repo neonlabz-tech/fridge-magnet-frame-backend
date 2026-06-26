@@ -35,9 +35,25 @@ export class User extends Document {
 
   @Prop({ type: Date })
   passwordResetExpires?: Date;
+
+  // ── Customer-profile fields ──────────────────────────────────────────────
+  // Only populated for role:'user' accounts. Admin accounts leave these unset.
+
+  /** Unique customer identifier in the format #CUST-XXXX */
+  @Prop({ type: String, sparse: true })
+  customerId?: string;
+
+  /** 10-digit phone number */
+  @Prop({ type: String, trim: true, default: '' })
+  phoneNumber?: string;
+
+  /** Full shipping / customer address */
+  @Prop({ type: String, trim: true, default: '' })
+  customerAddress?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Add index for password reset token (email already has unique index from @Prop)
 UserSchema.index({ passwordResetToken: 1 });
+// sparse: true means admin documents (no customerId) are not indexed
+UserSchema.index({ customerId: 1 }, { sparse: true });
