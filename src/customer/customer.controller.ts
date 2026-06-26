@@ -66,6 +66,21 @@ export class CustomerController {
     };
   }
 
+  @Get('by-email/:email')
+  async findByEmail(@Param('email') email: string) {
+    const customer = await this.customerService.findByEmail(
+      decodeURIComponent(email),
+    );
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: customer
+        ? 'Customer retrieved successfully'
+        : 'Customer not found',
+      data: customer,
+    };
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     const customer = await this.customerService.findOne(id);
