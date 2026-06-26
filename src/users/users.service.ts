@@ -9,8 +9,6 @@ import * as crypto from 'crypto';
 export class UsersService {
   constructor(@InjectModel(User.name) private userModel: Model<User>) {}
 
-  // ── Core user methods (unchanged) ────────────────────────────────────────
-
   async create(
     email: string,
     password: string,
@@ -98,9 +96,6 @@ export class UsersService {
     return this.create(email, password, 'admin');
   }
 
-  // ── Customer-profile helpers ──────────────────────────────────────────────
-
-  /** All users with a given role, newest first, password excluded. */
   async findAllByRole(role: string): Promise<User[]> {
     return this.userModel
       .find({ role })
@@ -109,11 +104,6 @@ export class UsersService {
       .exec();
   }
 
-  /**
-   * Find a customer-role user by either:
-   *   • MongoDB ObjectId string (_id)
-   *   • customerId string (#CUST-XXXX or CUST-XXXX)
-   */
   async findCustomerByIdOrCustomerId(id: string): Promise<User | null> {
     if (id.startsWith('#CUST-') || id.startsWith('CUST-')) {
       const normalised = id.startsWith('#') ? id : `#${id}`;
@@ -133,7 +123,6 @@ export class UsersService {
     return null;
   }
 
-  /** Update customer-specific fields on any user document. */
   async updateCustomerFields(
     id: string,
     fields: Partial<Pick<User, 'fullName' | 'phoneNumber' | 'customerAddress' | 'isActive'>>,
@@ -144,11 +133,6 @@ export class UsersService {
       .exec();
   }
 
-  /**
-   * Ensure the user identified by _id has a customerId.
-   * If one is already set, returns the existing value.
-   * Retries up to 10 times to guarantee uniqueness.
-   */
   async generateAndAssignCustomerId(userId: string): Promise<string> {
     const user = await this.userModel.findById(userId).exec();
     if (!user) throw new Error(`User ${userId} not found`);
@@ -172,10 +156,6 @@ export class UsersService {
     throw new Error('Failed to generate a unique customerId after 10 retries');
   }
 
-  /**
-   * Find a customer-role user by email (case-insensitive).
-   * Returns null if the email belongs to an admin or doesn't exist.
-   */
   async findCustomerByEmail(email: string): Promise<User | null> {
     return this.userModel
       .findOne({ email: email.toLowerCase(), role: 'user' })

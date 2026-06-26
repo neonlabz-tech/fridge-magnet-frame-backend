@@ -7,28 +7,10 @@ import { UsersService } from '../users/users.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
-/**
- * CustomerService — single source of truth is now the `users` collection.
- *
- * The `customers` MongoDB collection is kept alive only during the migration
- * window.  Once you have run the migration script and verified the data, you
- * can drop the `customers` collection and remove the MongooseModule
- * registration from CustomerModule.
- *
- * Every public method keeps the same signature it had before so that
- * AuthService, OrdersService, and CustomerController compile unchanged.
- */
 @Injectable()
 export class CustomerService {
   constructor(private readonly usersService: UsersService) {}
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  /**
-   * Serialize a User document into the shape the admin Customers page expects.
-   * The frontend already accepts both `customerName/emailAddress` and
-   * `name/email`, but we return the canonical names to stay consistent.
-   */
   private serialize(user: any) {
     return {
       _id: user._id,
@@ -53,13 +35,6 @@ export class CustomerService {
     return digits.length >= 10 ? digits.slice(-10) : '0000000000';
   }
 
-  // ── Public API (same signatures as before) ────────────────────────────────
-
-  /**
-   * Create a brand-new customer (called from the admin "Add Customer" modal).
-   * Creates a `users` document with role:'user'.
-   * A random password is set — the customer can reset it via forgot-password.
-   */
   async create(dto: CreateCustomerDto): Promise<any> {
     const email = dto.emailAddress.toLowerCase();
 
@@ -97,10 +72,6 @@ export class CustomerService {
     return user ? this.serialize(user) : null;
   }
 
-  /**
-   * Called on every login/register.
-   * Ensures the user has a customerId; fills in blank phone/address placeholders.
-   */
   async ensureForRegisteredUser(user: {
     email: string;
     fullName?: string;
@@ -111,7 +82,6 @@ export class CustomerService {
       return null;
     }
 
-    // Generate customerId if the user doesn't have one yet
     if (!existing.customerId) {
       await this.usersService.generateAndAssignCustomerId(
         (existing._id as any).toString(),
@@ -124,10 +94,6 @@ export class CustomerService {
     return this.serialize(fresh);
   }
 
-  /**
-   * Paginated list of all customers for the admin dashboard.
-   * Reads only from the `users` collection (role:'user').
-   */
   async findAll(
     page: number = 1,
     limit: number = 10,
@@ -152,9 +118,6 @@ export class CustomerService {
     };
   }
 
-  /**
-   * Find a single customer by MongoDB ObjectId or customerId (#CUST-XXXX).
-   */
   async findOne(id: string): Promise<any> {
     const user = await this.usersService.findCustomerByIdOrCustomerId(id);
 
@@ -165,10 +128,6 @@ export class CustomerService {
     return this.serialize(user);
   }
 
-  /**
-   * Update customer profile fields (name, email, phone, address).
-   * Called from the admin "Edit Customer" modal via CustomerController.
-   */
   async update(id: string, dto: UpdateCustomerDto): Promise<any> {
     const existing = await this.usersService.findCustomerByIdOrCustomerId(id);
 
@@ -176,7 +135,6 @@ export class CustomerService {
       throw new NotFoundException(`Customer with ID "${id}" not found`);
     }
 
-    // Guard against email collision
     if (dto.emailAddress) {
       const clash = await this.usersService.findByEmail(
         dto.emailAddress.toLowerCase(),
@@ -204,7 +162,6 @@ export class CustomerService {
     return this.serialize(updated);
   }
 
-  /** Soft-disable a customer by setting isActive:false on the user document. */
   async remove(id: string): Promise<any> {
     const existing = await this.usersService.findCustomerByIdOrCustomerId(id);
 
@@ -220,11 +177,6 @@ export class CustomerService {
     return this.serialize(updated);
   }
 
-  /**
-   * Toggle a customer's active status.
-   * The `source` parameter is kept for API backwards-compatibility
-   * but is now ignored — all customers live in `users`.
-   */
   async setActiveStatus(
     id: string,
     isActive: boolean,
@@ -233,8 +185,6 @@ export class CustomerService {
     const existing = await this.usersService.findCustomerByIdOrCustomerId(id);
 
     if (!existing) {
-      // Fallback: try by plain ObjectId (covers the case where recordId is an
-      // admin-managed customer whose source was 'user' before migration)
       const byId = await this.usersService.updateActiveStatus(id, isActive);
       if (!byId) {
         throw new NotFoundException(`Customer with ID "${id}" not found`);
@@ -250,11 +200,6 @@ export class CustomerService {
     return this.serialize(updated);
   }
 
-  /**
-   * Called by OrdersService after an order is placed.
-   * Finds the user by email and updates contact/address fields.
-   * If no user exists (guest checkout), creates a new one with role:'user'.
-   */
   async updateFromOrder(order: {
     email: string;
     customerName: string;
@@ -280,7 +225,6 @@ export class CustomerService {
         fields,
       );
 
-      // Ensure customerId exists
       if (!user.customerId) {
         await this.usersService.generateAndAssignCustomerId(
           (user._id as any).toString(),
@@ -290,7 +234,6 @@ export class CustomerService {
       return this.serialize(updated);
     }
 
-    // Guest checkout — create a new user with role:'user'
     const randomPassword = require('crypto').randomUUID();
     const newUser = await this.usersService.create(
       email,

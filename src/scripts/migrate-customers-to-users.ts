@@ -1,26 +1,3 @@
-/**
- * migrate-customers-to-users.ts
- * ─────────────────────────────
- * One-time migration: reads every document from the `customers` collection
- * and upserts it into the `users` collection.
- *
- * RULES
- *   • Match by email (case-insensitive).
- *   • If a `users` document with that email already exists  → merge fields in
- *     (never overwrite a field that already has a real value).
- *   • If no matching user exists → create a new user with role:'user'.
- *   • Never deletes the `customers` collection — you do that manually after
- *     verifying the migration worked.
- *
- * USAGE
- *   # dry-run (no writes)
- *   npx ts-node -r tsconfig-paths/register src/scripts/migrate-customers-to-users.ts --dry-run
- *
- *   # real run
- *   npx ts-node -r tsconfig-paths/register src/scripts/migrate-customers-to-users.ts
- *
- * The script reads MONGODB_URI from .env (same file the NestJS app uses).
- */
 
 import * as dotenv from 'dotenv';
 import * as path from 'path';
@@ -30,10 +7,9 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
-// ── CLI flag ─────────────────────────────────────────────────────────────────
 const DRY_RUN = process.argv.includes('--dry-run');
 
-// ── Inline schema definitions (no NestJS DI needed) ──────────────────────────
+
 
 interface ICustomer extends Document {
   customerId?: string;
