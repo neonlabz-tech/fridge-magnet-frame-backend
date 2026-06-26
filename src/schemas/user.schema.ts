@@ -7,16 +7,16 @@ export class User extends Document {
   fullName?: string;
 
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
-  email: string;
+  email!: string;
 
   @Prop({ required: true })
-  password: string;
+  password!: string;
 
   @Prop({ default: 'user', enum: ['user', 'admin'] })
-  role: string;
+  role!: string;
 
   @Prop({ type: Boolean, default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Prop({ type: String, trim: true, default: '' })
   bio?: string;
@@ -35,9 +35,18 @@ export class User extends Document {
 
   @Prop({ type: Date })
   passwordResetExpires?: Date;
+
+  @Prop({ type: String, sparse: true })
+  customerId?: string;
+
+  @Prop({ type: String, trim: true, default: '' })
+  phoneNumber?: string;
+
+  @Prop({ type: String, trim: true, default: '' })
+  customerAddress?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Add index for password reset token (email already has unique index from @Prop)
 UserSchema.index({ passwordResetToken: 1 });
+UserSchema.index({ customerId: 1 }, { sparse: true });

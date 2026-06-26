@@ -5,7 +5,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
-import { CustomerService } from '../customer/customer.service';
+import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 
 @Injectable()
@@ -24,7 +24,7 @@ export class OrdersService {
     private orderModel: Model<OrderDocument>,
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
-    private readonly customerService: CustomerService,
+    private readonly usersService: UsersService,
     private readonly mailService: MailService,
   ) {}
 
@@ -65,7 +65,7 @@ export class OrdersService {
     }
 
     const order = await this.orderModel.create(dto);
-    await this.customerService.updateFromOrder({
+    await this.usersService.updateFromOrder({
       email: dto.email,
       customerName: dto.customerName,
       phone: dto.phone,

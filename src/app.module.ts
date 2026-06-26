@@ -13,7 +13,6 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { OrdersModule } from './orders/orders.module';
-import { CustomerModule } from './customer/customer.module';
 import { ProductsModule } from './products/products.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MailModule } from './mail/mail.module';
@@ -27,22 +26,10 @@ const logger = new Logger('MongoDB');
     ConfigModule.forRoot({ isGlobal: true }),
 
     MongooseModule.forRoot(process.env.MONGODB_URI as string, {
-      // BUG FIX — MongoDB Atlas ETIMEOUT / querySrv timeout
-      //
-      // Atlas uses a DNS SRV record (mongodb+srv://) to discover replica-set
-      // members. On some networks (corporate NAT, VPN, Windows DNS) the SRV
-      // lookup times out.  The DNS override in lines 4-5 (8.8.8.8) already
-      // tries to fix this; these additional options ensure:
-      //   1. serverSelectionTimeoutMS — Mongoose gives up selecting a server
-      //      after 5 s (default is 30 s), so the backend process starts quickly
-      //      and NestJS can begin handling requests even while the DB reconnects.
-      //   2. connectTimeoutMS / socketTimeoutMS — prevent indefinitely hanging
-      //      sockets from blocking the Node.js event loop.
-      //   3. The existing retry logic in NestJS logs "Retrying (N)..." so the
-      //      connection will be re-attempted automatically.
-      serverSelectionTimeoutMS: 5000,   // give up server selection after 5 s
-      connectTimeoutMS: 10000,          // TCP connect timeout
-      socketTimeoutMS: 45000,           // idle socket timeout
+     
+      serverSelectionTimeoutMS: 5000,   
+      connectTimeoutMS: 10000,          
+      socketTimeoutMS: 45000,           
       connectionFactory: (connection) => {
         connection.on('connected', () => {
           logger.log('✅ MongoDB connected successfully');
@@ -59,7 +46,6 @@ const logger = new Logger('MongoDB');
     AuthModule,
     UsersModule,
     OrdersModule,
-    CustomerModule,
     ProductsModule,
     CloudinaryModule,
     MailModule,
