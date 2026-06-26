@@ -119,30 +119,20 @@ export class ProductsService {
     maxPrice?: number,
   ) {
     try {
-      await this.productModel.updateMany(
-        {},
-        [
-          {
-            $set: {
-              status: {
-                $switch: {
-                  branches: [
-                    {
-                      case: { $gt: ['$stock', 10] },
-                      then: 'In Stock',
-                    },
-                    {
-                      case: { $gt: ['$stock', 4] },
-                      then: 'Low Stock',
-                    },
-                  ],
-                  default: 'Out of Stock',
-                },
-              },
-            },
-          },
-        ],
-      );
+      await Promise.all([
+        this.productModel.updateMany(
+          { stock: { $gt: 10 }, status: { $ne: 'In Stock' } },
+          { $set: { status: 'In Stock' } },
+        ),
+        this.productModel.updateMany(
+          { stock: { $gt: 4, $lte: 10 }, status: { $ne: 'Low Stock' } },
+          { $set: { status: 'Low Stock' } },
+        ),
+        this.productModel.updateMany(
+          { stock: { $lte: 4 }, status: { $ne: 'Out of Stock' } },
+          { $set: { status: 'Out of Stock' } },
+        ),
+      ]);
 
       const skip = (page - 1) * limit;
       const filters: any = {};
