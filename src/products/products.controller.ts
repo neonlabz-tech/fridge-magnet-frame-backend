@@ -27,19 +27,22 @@ export class ProductsController {
 
   private normalizePersonalization(
     input: unknown,
-  ): { label: string; imageField: string | null }[] {
-    const toEntry = (item: any): { label: string; imageField: string | null } => {
+  ): { label: string; price: number; note: string; imageField: string | null }[] {
+    const toEntry = (item: any): { label: string; price: number; note: string; imageField: string | null } => {
       if (item && typeof item === 'object') {
+        const price = Number(item.price);
         return {
-          label: String(item.label ?? ''),
+          label: String(item.label ?? '').trim(),
+          price: Number.isFinite(price) ? price : 0,
+          note: String(item.note ?? '').trim(),
           imageField: item.imageField ?? null,
         };
       }
-      return { label: String(item), imageField: null };
+      return { label: String(item).trim(), price: 0, note: '', imageField: null };
     };
 
     if (Array.isArray(input)) {
-      return input.map(toEntry);
+      return input.map(toEntry).filter((entry) => entry.label);
     }
 
     if (typeof input === 'string') {
@@ -49,20 +52,22 @@ export class ProductsController {
       try {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) {
-          return parsed.map(toEntry);
+          return parsed.map(toEntry).filter((entry) => entry.label);
         }
       } catch {
         // Not a JSON array string; treat as a single plain label
       }
 
-      return [{ label: value, imageField: null }];
+      return [{ label: value, price: 0, note: '', imageField: null }];
     }
 
     if (input === undefined || input === null) {
       return [];
     }
 
-    return [{ label: String(input), imageField: null }];
+    return [{ label: String(input).trim(), price: 0, note: '', imageField: null }].filter(
+      (entry) => entry.label,
+    );
   }
 
   @Post()

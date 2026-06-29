@@ -30,6 +30,8 @@ export class Product {
     type: [
       {
         label: { type: String, required: true },
+        price: { type: Number, default: 0 },
+        note: { type: String, default: '' },
         image: {
           type: {
             secure_url: String,
@@ -43,6 +45,8 @@ export class Product {
   })
   personalization!: Array<{
     label: string;
+    price: number;
+    note: string;
     image: {
       secure_url: string;
       public_id: string;
