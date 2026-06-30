@@ -73,12 +73,17 @@ export class ProductsService {
         if (hasAnyImageFiles) {
           productData.personalization = await Promise.all(
             productData.personalization.map(async (option: any) => {
+              const baseOption = {
+                label: option.label,
+                price: Number(option.price) || 0,
+                note: option.note ?? '',
+              };
               const file = option.imageField
                 ? personalizationImageFiles![option.imageField]
                 : undefined;
 
               if (!file) {
-                return { label: option.label, image: null };
+                return { ...baseOption, image: null };
               }
 
               const uploaded = await this.cloudinaryService.uploadImage(
@@ -86,13 +91,18 @@ export class ProductsService {
                 'products/personalization',
               );
 
-              return { label: option.label, image: uploaded };
+              return { ...baseOption, image: uploaded };
             }),
           );
         } else {
           // No images attached at all — just keep labels, drop the imageField reference
           productData.personalization = productData.personalization.map(
-            (option: any) => ({ label: option.label, image: null }),
+            (option: any) => ({
+              label: option.label,
+              price: Number(option.price) || 0,
+              note: option.note ?? '',
+              image: null,
+            }),
           );
         }
       }
