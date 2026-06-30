@@ -3,24 +3,24 @@ import { Transform, Type } from 'class-transformer';
 
 export class CreateProductDto {
   @IsString()
-  productName: string;
+  productName!: string;
 
   @IsString()
-  productId: string;
+  productId!: string;
 
   @IsString()
-  category: string;
+  category!: string;
 
   @Type(() => Number)
   @IsNumber()
-  stock: number;
+  stock!: number;
 
   @Type(() => Number)
   @IsNumber()
-  price: number;
+  price!: number;
 
   @IsString()
-  description: string;
+  description!: string;
 
   @IsOptional()
   @Transform(({ value }) =>
@@ -32,8 +32,26 @@ export class CreateProductDto {
   personalizationEnabled?: boolean;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value;
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        return [trimmed];
+      }
+    }
+
+    if (value === undefined || value === null) return [];
+
+    return [value];
+  })
   @IsArray()
-  personalization?: string[];
+  personalization?: any[];
 
   @IsOptional()
   @IsString()

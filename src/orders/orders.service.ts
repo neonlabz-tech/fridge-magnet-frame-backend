@@ -1,13 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
+import { UsersService } from '../users/users.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
   private readonly statusRank: Record<string, number> = {
     PENDING: 0,
     PROCESSING: 1,
@@ -21,6 +24,8 @@ export class OrdersService {
     private orderModel: Model<OrderDocument>,
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
+    private readonly usersService: UsersService,
+    private readonly mailService: MailService,
   ) {}
 
   private getStatusFromStock(stock: number) {
@@ -30,39 +35,44 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto) {
-  if (dto.items?.length) {
-    for (const item of dto.items) {
-      if (!item.productId) continue;
+    if (dto.items?.length) {
+      for (const item of dto.items) {
+        if (!item.productId) continue;
 
-      const quantity = Math.max(Number(item.quantity || 0), 0);
-      if (quantity === 0) continue;
+        const quantity = Math.max(Number(item.quantity || 0), 0);
+        if (quantity === 0) continue;
 
-      const product = Types.ObjectId.isValid(item.productId)
-        ? await this.productModel.findById(item.productId)
-        : await this.productModel.findOne({ productId: item.productId });
+        const product = Types.ObjectId.isValid(item.productId)
+          ? await this.productModel.findById(item.productId)
+          : await this.productModel.findOne({ productId: item.productId });
 
-      if (!product) {
-        throw new NotFoundException('Product not found');
+        if (!product) {
+          throw new NotFoundException('Product not found');
+        }
+
+        if (Number(product.stock || 0) < quantity) {
+          throw new BadRequestException(
+            `${product.productName} stock not available`,
+          );
+        }
+
+        product.stock = Number(product.stock || 0) - quantity;
+        product.status = this.getStatusFromStock(product.stock);
+        product.updatedAt = new Date();
+
+        await product.save();
       }
-
-      if (Number(product.stock || 0) < quantity) {
-        throw new BadRequestException(
-          `${product.productName} stock not available`,
-        );
-      }
-
-      product.stock = Number(product.stock || 0) - quantity;
-      product.status = this.getStatusFromStock(product.stock);
-      product.updatedAt = new Date();
-
-      await product.save();
     }
-  }
 
-  const order = await this.orderModel.create(dto);
-  return order;
-}
-  
+    const order = await this.orderModel.create(dto);
+    await this.usersService.updateFromOrder({
+      email: dto.email,
+      customerName: dto.customerName,
+      phone: dto.phone,
+      shippingAddress: dto.shippingAddress,
+    });
+    return order;
+  }
 
   findAll(status?: string, search?: string) {
     const filter: any = {};
@@ -76,6 +86,7 @@ export class OrdersService {
         { orderId: { $regex: search, $options: 'i' } },
         { customerName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
+        { district: { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -105,7 +116,36 @@ export class OrdersService {
     order.adminNote = dto.adminNote;
     await order.save();
 
-    return order;
+    if (!dto.sendEmailNotification) {
+      return order;
+    }
+
+    if (!order.email) {
+      this.logger.warn(
+        `[Orders] sendEmailNotification=true but order ${order.orderId} has no email address`,
+      );
+      return {
+        ...order.toObject(),
+        emailNotification: { attempted: false, success: false, error: 'Order has no email address' },
+      };
+    }
+
+    const emailResult = await this.mailService.sendOrderStatusUpdate({
+      to: order.email,
+      customerName: order.customerName,
+      orderId: order.orderId,
+      newStatus: dto.status,
+      adminNote: dto.adminNote,
+    });
+
+    return {
+      ...order.toObject(),
+      emailNotification: {
+        attempted: true,
+        success: emailResult.success,
+        ...(emailResult.error ? { error: emailResult.error } : {}),
+      },
+    };
   }
 
   async delete(id: string) {

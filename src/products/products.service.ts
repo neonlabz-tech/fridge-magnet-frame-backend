@@ -32,6 +32,7 @@ export class ProductsService {
     createProductDto: CreateProductDto,
     primaryImageFile?: Express.Multer.File,
     galleryImageFiles?: Express.Multer.File[],
+    personalizationImageFiles?: Record<string, Express.Multer.File>,
   ) {
     try {
       const existingProduct = await this.productModel.findOne({
@@ -63,6 +64,49 @@ export class ProductsService {
           );
       }
 
+      // Upload each personalization option's image (if attached) and embed the URL
+      if (Array.isArray(productData.personalization)) {
+        const hasAnyImageFiles =
+          personalizationImageFiles &&
+          Object.keys(personalizationImageFiles).length > 0;
+
+        if (hasAnyImageFiles) {
+          productData.personalization = await Promise.all(
+            productData.personalization.map(async (option: any) => {
+              const baseOption = {
+                label: option.label,
+                price: Number(option.price) || 0,
+                note: option.note ?? '',
+              };
+              const file = option.imageField
+                ? personalizationImageFiles![option.imageField]
+                : undefined;
+
+              if (!file) {
+                return { ...baseOption, image: null };
+              }
+
+              const uploaded = await this.cloudinaryService.uploadImage(
+                file,
+                'products/personalization',
+              );
+
+              return { ...baseOption, image: uploaded };
+            }),
+          );
+        } else {
+          // No images attached at all — just keep labels, drop the imageField reference
+          productData.personalization = productData.personalization.map(
+            (option: any) => ({
+              label: option.label,
+              price: Number(option.price) || 0,
+              note: option.note ?? '',
+              image: null,
+            }),
+          );
+        }
+      }
+
       const product = await this.productModel.create(productData);
 
       return {
@@ -71,7 +115,7 @@ export class ProductsService {
         data: product,
       };
     } catch (error) {
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -85,30 +129,20 @@ export class ProductsService {
     maxPrice?: number,
   ) {
     try {
-      await this.productModel.updateMany(
-        {},
-        [
-          {
-            $set: {
-              status: {
-                $switch: {
-                  branches: [
-                    {
-                      case: { $gt: ['$stock', 10] },
-                      then: 'In Stock',
-                    },
-                    {
-                      case: { $gt: ['$stock', 4] },
-                      then: 'Low Stock',
-                    },
-                  ],
-                  default: 'Out of Stock',
-                },
-              },
-            },
-          },
-        ],
-      );
+      await Promise.all([
+        this.productModel.updateMany(
+          { stock: { $gt: 10 }, status: { $ne: 'In Stock' } },
+          { $set: { status: 'In Stock' } },
+        ),
+        this.productModel.updateMany(
+          { stock: { $gt: 4, $lte: 10 }, status: { $ne: 'Low Stock' } },
+          { $set: { status: 'Low Stock' } },
+        ),
+        this.productModel.updateMany(
+          { stock: { $lte: 4 }, status: { $ne: 'Out of Stock' } },
+          { $set: { status: 'Out of Stock' } },
+        ),
+      ]);
 
       const skip = (page - 1) * limit;
       const filters: any = {};
@@ -152,7 +186,7 @@ export class ProductsService {
         },
       };
     } catch (error) {
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -171,7 +205,7 @@ export class ProductsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -203,9 +237,20 @@ export class ProductsService {
 
       const updateData: any = { ...updateProductDto };
 
+      let stockHistoryEntry: { previousStock: number; newStock: number; changedBy: string; changedAt: Date } | null = null;
+
       if (updateData.stock !== undefined) {
-        updateData.stock = Number(updateData.stock) || 0;
-        updateData.status = this.getStockStatus(updateData.stock);
+        const newStock = Number(updateData.stock) || 0;
+        if (newStock !== product.stock) {
+          stockHistoryEntry = {
+            previousStock: product.stock,
+            newStock,
+            changedBy: 'Admin',
+            changedAt: new Date(),
+          };
+        }
+        updateData.stock = newStock;
+        updateData.status = this.getStockStatus(newStock);
       }
 
       if (updateData.price !== undefined) {
@@ -238,9 +283,14 @@ export class ProductsService {
 
       updateData.updatedAt = new Date();
 
+      const updateOps: any = { $set: updateData };
+      if (stockHistoryEntry) {
+        updateOps.$push = { stockHistory: stockHistoryEntry };
+      }
+
       const updatedProduct = await this.productModel.findByIdAndUpdate(
         id,
-        updateData,
+        updateOps,
         { new: true },
       );
 
@@ -256,7 +306,7 @@ export class ProductsService {
       ) {
         throw error;
       }
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -277,9 +327,16 @@ export class ProductsService {
       throw new BadRequestException('Not enough stock available');
     }
 
+    const previousStock = product.stock;
     product.stock = product.stock - orderQuantity;
     product.status = this.getStockStatus(product.stock);
     product.updatedAt = new Date();
+    product.stockHistory.push({
+      previousStock,
+      newStock: product.stock,
+      changedBy: 'System (Order)',
+      changedAt: new Date(),
+    });
 
     await product.save();
 
@@ -327,7 +384,31 @@ export class ProductsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async getStockLog(id: string) {
+    try {
+      const product = await this.productModel
+        .findById(id)
+        .select('stockHistory productName productId')
+        .exec();
+
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${id} not found`);
+      }
+
+      const log = [...(product.stockHistory || [])].reverse();
+
+      return {
+        success: true,
+        message: 'Stock log retrieved successfully',
+        data: log,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -359,7 +440,7 @@ export class ProductsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
 }

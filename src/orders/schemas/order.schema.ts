@@ -43,6 +43,9 @@ export class Order {
   @Prop()
   shippingAddress?: string;
 
+  @Prop()
+  district?: string;
+
   @Prop({ type: [Object], default: [] })
   items?: {
     productId?: string;
