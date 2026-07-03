@@ -234,18 +234,27 @@ export class UsersService {
   ): Promise<{
     data: any[];
     total: number;
+    activeTotal: number;
     page: number;
     limit: number;
     totalPages: number;
   }> {
     const allUsers = await this.findAllByRole('user');
+    const activeTotal = allUsers.filter((user) => user.isActive === true).length;
     const total = allUsers.length;
     const skip = (page - 1) * limit;
     const data = allUsers
       .slice(skip, skip + limit)
       .map((u) => this.serializeCustomer(u));
 
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return {
+      data,
+      total,
+      activeTotal,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findOneCustomer(id: string): Promise<any> {

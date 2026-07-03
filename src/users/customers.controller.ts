@@ -58,6 +58,7 @@ export class CustomersController {
       message: 'Customers retrieved successfully',
       data: result.data,
       total: result.total,
+      activeTotal: result.activeTotal,
       page: result.page,
       limit: result.limit,
       totalPages: result.totalPages,

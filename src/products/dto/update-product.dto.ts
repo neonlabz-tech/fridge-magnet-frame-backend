@@ -7,8 +7,8 @@ export class UpdateProductDto {
   @IsOptional()
   productId?: any;
 
-  @IsOptional()
-  category?: any;
+  // @IsOptional()
+  // category?: any;
 
   @IsOptional()
   stock?: any;
@@ -19,11 +19,11 @@ export class UpdateProductDto {
   @IsOptional()
   description?: any;
 
-  @IsOptional()
-  personalizationEnabled?: any;
+  // @IsOptional()
+  // personalizationEnabled?: any;
 
-  @IsOptional()
-  personalization?: string[];
+  // @IsOptional()
+  // personalization?: string[];
 
   @IsOptional()
   status?: string;

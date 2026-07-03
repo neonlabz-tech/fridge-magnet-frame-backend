@@ -25,61 +25,12 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  private normalizePersonalization(
-    input: unknown,
-  ): { label: string; price: number; note: string; imageField: string | null }[] {
-    const toEntry = (item: any): { label: string; price: number; note: string; imageField: string | null } => {
-      if (item && typeof item === 'object') {
-        const price = Number(item.price);
-        return {
-          label: String(item.label ?? '').trim(),
-          price: Number.isFinite(price) ? price : 0,
-          note: String(item.note ?? '').trim(),
-          imageField: item.imageField ?? null,
-        };
-      }
-      return { label: String(item).trim(), price: 0, note: '', imageField: null };
-    };
-
-    if (Array.isArray(input)) {
-      return input.map(toEntry).filter((entry) => entry.label);
-    }
-
-    if (typeof input === 'string') {
-      const value = input.trim();
-      if (!value) return [];
-
-      try {
-        const parsed = JSON.parse(value);
-        if (Array.isArray(parsed)) {
-          return parsed.map(toEntry).filter((entry) => entry.label);
-        }
-      } catch {
-        // Not a JSON array string; treat as a single plain label
-      }
-
-      return [{ label: value, price: 0, note: '', imageField: null }];
-    }
-
-    if (input === undefined || input === null) {
-      return [];
-    }
-
-    return [{ label: String(input).trim(), price: 0, note: '', imageField: null }].filter(
-      (entry) => entry.label,
-    );
-  }
-
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor(
       [
         { name: 'primaryImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 },
-        ...Array.from({ length: 10 }, (_, i) => ({
-          name: `personalizationImage_${i}`,
-          maxCount: 1,
-        })),
       ],
       { storage: memoryStorage() },
     ),
@@ -90,7 +41,6 @@ export class ProductsController {
     files: {
       primaryImage?: Express.Multer.File[];
       galleryImages?: Express.Multer.File[];
-      [key: string]: Express.Multer.File[] | undefined;
     },
   ) {
     // Trim keys and parse form-data fields
@@ -104,27 +54,12 @@ export class ProductsController {
       ...trimmedDto,
       stock: trimmedDto.stock ? Number(trimmedDto.stock) : 0,
       price: trimmedDto.price ? Number(trimmedDto.price) : 0,
-      personalizationEnabled:
-        trimmedDto.personalizationEnabled === true ||
-        trimmedDto.personalizationEnabled === 'true',
-      personalization: this.normalizePersonalization(
-        trimmedDto.personalization,
-      ),
     };
-
-    // Collect each personalization option's image file (if any) keyed by its field name
-    const personalizationImageFiles: Record<string, Express.Multer.File> = {};
-    for (const key in files) {
-      if (key.startsWith('personalizationImage_') && files[key]?.[0]) {
-        personalizationImageFiles[key] = files[key]![0];
-      }
-    }
 
     return this.productsService.create(
       parsedDto,
       files?.primaryImage?.[0],
       files?.galleryImages,
-      personalizationImageFiles,
     );
   }
 

@@ -14,6 +14,8 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
+  private readonly duplicateProductNameMessage =
+    'This product name is already used. Please use a different product name.';
 
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
@@ -28,6 +30,63 @@ export class ProductsService {
     return 'Out of Stock';
   }
 
+  private escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private normalizeName(value: unknown): string {
+    return String(value ?? '').trim();
+  }
+
+  private normalizeNameKey(value: unknown): string {
+    return this.normalizeName(value).toLowerCase();
+  }
+
+  private async findProductByName(name: string, excludeId?: string) {
+    const normalizedName = this.normalizeName(name);
+    const normalizedNameKey = this.normalizeNameKey(name);
+
+    if (!normalizedName) {
+      return null;
+    }
+
+    const query: Record<string, unknown> = {
+      $or: [
+        { productNameKey: normalizedNameKey },
+        {
+          productName: {
+            $regex: `^${this.escapeRegex(normalizedName)}$`,
+            $options: 'i',
+          },
+        },
+      ],
+    };
+
+    if (excludeId) {
+      query._id = { $ne: excludeId };
+    }
+
+    return this.productModel.findOne(query).exec();
+  }
+
+  private isDuplicateProductNameError(error: unknown): boolean {
+    if (!error || typeof error !== 'object' || !('code' in error)) {
+      return false;
+    }
+
+    const mongoError = error as {
+      code?: number;
+      keyPattern?: Record<string, unknown>;
+      keyValue?: Record<string, unknown>;
+    };
+
+    return (
+      mongoError.code === 11000 &&
+      (Boolean(mongoError.keyPattern?.productNameKey) ||
+        Boolean(mongoError.keyValue?.productNameKey))
+    );
+  }
+
   async create(
     createProductDto: CreateProductDto,
     primaryImageFile?: Express.Multer.File,
@@ -35,15 +94,36 @@ export class ProductsService {
     personalizationImageFiles?: Record<string, Express.Multer.File>,
   ) {
     try {
+      const normalizedProductName = this.normalizeName(
+        createProductDto.productName,
+      );
+      const normalizedProductNameKey = this.normalizeNameKey(
+        createProductDto.productName,
+      );
+      const normalizedProductId = this.normalizeName(createProductDto.productId);
+
       const existingProduct = await this.productModel.findOne({
-        productId: createProductDto.productId,
+        productId: normalizedProductId,
       });
 
       if (existingProduct) {
         throw new BadRequestException('Product with this SKU already exists');
       }
 
-      const productData: any = { ...createProductDto };
+      const existingProductByName = await this.findProductByName(
+        normalizedProductName,
+      );
+
+      if (existingProductByName) {
+        throw new BadRequestException(this.duplicateProductNameMessage);
+      }
+
+      const productData: any = {
+        ...createProductDto,
+        productName: normalizedProductName,
+        productNameKey: normalizedProductNameKey,
+        productId: normalizedProductId,
+      };
 
       productData.stock = Number(productData.stock) || 0;
       productData.price = Number(productData.price) || 0;
@@ -115,6 +195,10 @@ export class ProductsService {
         data: product,
       };
     } catch (error) {
+      if (this.isDuplicateProductNameError(error)) {
+        throw new BadRequestException(this.duplicateProductNameMessage);
+      }
+
       throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
   }
@@ -222,20 +306,44 @@ export class ProductsService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
+      const updateData: any = { ...updateProductDto };
+
       if (
         updateProductDto.productId &&
         updateProductDto.productId !== product.productId
       ) {
+        const normalizedProductId = this.normalizeName(updateProductDto.productId);
         const existingProduct = await this.productModel.findOne({
-          productId: updateProductDto.productId,
+          productId: normalizedProductId,
         });
 
         if (existingProduct) {
           throw new BadRequestException('Product with this SKU already exists');
         }
+
+        updateData.productId = normalizedProductId;
       }
 
-      const updateData: any = { ...updateProductDto };
+      if (updateProductDto.productName !== undefined) {
+        const normalizedProductName = this.normalizeName(
+          updateProductDto.productName,
+        );
+        const normalizedProductNameKey = this.normalizeNameKey(
+          updateProductDto.productName,
+        );
+
+        const existingProductByName = await this.findProductByName(
+          normalizedProductName,
+          id,
+        );
+
+        if (existingProductByName) {
+          throw new BadRequestException(this.duplicateProductNameMessage);
+        }
+
+        updateData.productName = normalizedProductName;
+        updateData.productNameKey = normalizedProductNameKey;
+      }
 
       let stockHistoryEntry: { previousStock: number; newStock: number; changedBy: string; changedAt: Date } | null = null;
 
@@ -300,6 +408,10 @@ export class ProductsService {
         data: updatedProduct,
       };
     } catch (error) {
+      if (this.isDuplicateProductNameError(error)) {
+        throw new BadRequestException(this.duplicateProductNameMessage);
+      }
+
       if (
         error instanceof NotFoundException ||
         error instanceof BadRequestException
