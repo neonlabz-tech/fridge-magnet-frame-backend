@@ -8,11 +8,14 @@ export class Product {
   @Prop({ required: true })
   productName!: string;
 
+  @Prop({ unique: true, sparse: true, trim: true, lowercase: true })
+  productNameKey!: string;
+
   @Prop({ required: true, unique: true })
   productId!: string; // SKU
 
-  @Prop({ required: true })
-  category!: string;
+  // @Prop({ required: true })
+  // category!: string;
 
   @Prop({ required: true, default: 0 })
   stock!: number;
@@ -23,35 +26,35 @@ export class Product {
   @Prop({ required: true })
   description!: string;
 
-  @Prop({ default: false })
-  personalizationEnabled!: boolean;
+  // @Prop({ default: false })
+  // personalizationEnabled!: boolean;
 
-  @Prop({
-    type: [
-      {
-        label: { type: String, required: true },
-        price: { type: Number, default: 0 },
-        note: { type: String, default: '' },
-        image: {
-          type: {
-            secure_url: String,
-            public_id: String,
-          },
-          default: null,
-        },
-      },
-    ],
-    default: [],
-  })
-  personalization!: Array<{
-    label: string;
-    price: number;
-    note: string;
-    image: {
-      secure_url: string;
-      public_id: string;
-    } | null;
-  }>;
+  // @Prop({
+  //   type: [
+  //     {
+  //       label: { type: String, required: true },
+  //       price: { type: Number, default: 0 },
+  //       note: { type: String, default: '' },
+  //       image: {
+  //         type: {
+  //           secure_url: String,
+  //           public_id: String,
+  //         },
+  //         default: null,
+  //       },
+  //     },
+  //   ],
+  //   default: [],
+  // })
+  // personalization!: Array<{
+  //   label: string;
+  //   price: number;
+  //   note: string;
+  //   image: {
+  //     secure_url: string;
+  //     public_id: string;
+  //   } | null;
+  // }>;
 
   @Prop({
     required: true,
@@ -114,3 +117,5 @@ export class Product {
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);
+
+ProductSchema.index({ productNameKey: 1 }, { unique: true, sparse: true });

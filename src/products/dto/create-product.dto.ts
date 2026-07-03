@@ -8,8 +8,8 @@ export class CreateProductDto {
   @IsString()
   productId!: string;
 
-  @IsString()
-  category!: string;
+  // @IsString()
+  // category!: string;
 
   @Type(() => Number)
   @IsNumber()
@@ -22,36 +22,36 @@ export class CreateProductDto {
   @IsString()
   description!: string;
 
-  @IsOptional()
-  @Transform(({ value }) =>
-    value === undefined || value === null || value === ''
-      ? undefined
-      : value === true || value === 'true',
-  )
-  @IsIn([true, false])
-  personalizationEnabled?: boolean;
+  // @IsOptional()
+  // @Transform(({ value }) =>
+  //   value === undefined || value === null || value === ''
+  //     ? undefined
+  //     : value === true || value === 'true',
+  // )
+  // @IsIn([true, false])
+  // personalizationEnabled?: boolean;
 
-  @IsOptional()
-  @Transform(({ value }) => {
-    if (Array.isArray(value)) return value;
+  // @IsOptional()
+  // @Transform(({ value }) => {
+  //   if (Array.isArray(value)) return value;
 
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) return [];
-      try {
-        const parsed = JSON.parse(trimmed);
-        return Array.isArray(parsed) ? parsed : [parsed];
-      } catch {
-        return [trimmed];
-      }
-    }
+  //   if (typeof value === 'string') {
+  //     const trimmed = value.trim();
+  //     if (!trimmed) return [];
+  //     try {
+  //       const parsed = JSON.parse(trimmed);
+  //       return Array.isArray(parsed) ? parsed : [parsed];
+  //     } catch {
+  //       return [trimmed];
+  //     }
+  //   }
 
-    if (value === undefined || value === null) return [];
+  //   if (value === undefined || value === null) return [];
 
-    return [value];
-  })
-  @IsArray()
-  personalization?: any[];
+  //   return [value];
+  // })
+  // @IsArray()
+  // personalization?: any[];
 
   @IsOptional()
   @IsString()
