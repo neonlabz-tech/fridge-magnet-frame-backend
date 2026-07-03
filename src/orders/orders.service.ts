@@ -7,6 +7,8 @@ import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
+import { ReceiptTemplate, ReceiptData } from './templates/receipt.template';
+import * as puppeteer from 'puppeteer';
 
 @Injectable()
 export class OrdersService {
@@ -99,6 +101,12 @@ export class OrdersService {
     return order;
   }
 
+  async findByOrderId(orderId: string) {
+    const order = await this.orderModel.findOne({ orderId: orderId });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
   async updateStatus(id: string, dto: UpdateOrderStatusDto) {
     const order = await this.orderModel.findById(id);
     if (!order) throw new NotFoundException('Order not found');
@@ -156,4 +164,138 @@ export class OrdersService {
       message: 'Order deleted successfully',
     };
   }
+
+  async generateReceipt(orderNumber: string): Promise<Buffer> {
+    const order = await this.orderModel.findOne({ orderId: orderNumber });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const orderObj = order.toObject();
+    
+    // Calculate items subtotal from actual item data
+    let itemsSubtotal = 0;
+    
+    if (orderObj.items && orderObj.items.length > 0) {
+      // Sum up each item's price × quantity from the stored order items
+      itemsSubtotal = orderObj.items.reduce((sum, item) => {
+        const itemPrice = Number(item.price || 0);
+        const itemQuantity = Number(item.quantity || 1);
+        return sum + (itemPrice * itemQuantity);
+      }, 0);
+    }
+    
+    
+    const subtotal = Math.max(0, itemsSubtotal);
+    const deliveryFee = subtotal > 0
+      ? Math.max(0, orderObj.totalValue - subtotal)
+      : 0;  
+    const finalTotal = orderObj.totalValue;
+    
+    // Prepare receipt data
+    const receiptData: ReceiptData = {
+      orderId: orderObj.orderId,
+      customerName: orderObj.customerName,
+      email: orderObj.email,
+      phone: orderObj.phone,
+      shippingAddress: orderObj.shippingAddress,
+      district: orderObj.district,
+      status: orderObj.status,
+      totalValue: finalTotal, // Use calculated total
+      subtotal: subtotal,     // Items subtotal
+      deliveryFee: deliveryFee,
+      qty: orderObj.qty,
+      items: orderObj.items,
+      createdAt: (orderObj as any).createdAt || new Date(),
+      adminNote: orderObj.adminNote,
+    };
+
+    try {
+      const html = ReceiptTemplate.generateReceipt(receiptData);
+      const pdfBuffer = await this.generatePDFFromHTML(html);
+      this.logger.log(`PDF receipt generated successfully for order: ${orderNumber}`);
+      return pdfBuffer;
+    } catch (error) {
+      this.logger.error(`PDF generation failed for order ${orderNumber}:`, error);
+      throw new Error('Unable to generate receipt PDF. Please contact support.');
+    }
+  }
+
+  private async generatePDFFromHTML(html: string): Promise<Buffer> {
+    let browser: puppeteer.Browser | null = null;
+    let page: puppeteer.Page | null = null;
+    
+    try {
+      // Create fresh browser instance with minimal configuration
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--hide-scrollbars',
+          '--mute-audio'
+        ],
+        timeout: 15000
+      });
+      
+      page = await browser.newPage();
+      
+      // Set viewport
+      await page.setViewport({ width: 800, height: 1200 });
+      
+      // Disable JavaScript for faster rendering
+      await page.setJavaScriptEnabled(false);
+      
+      // Set content
+      await page.setContent(html, { 
+        waitUntil: 'domcontentloaded',
+        timeout: 10000 
+      });
+      
+      // Generate PDF
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '12px',
+          right: '12px',
+          bottom: '12px',
+          left: '12px'
+        },
+        scale: 0.85,
+        timeout: 8000
+      });
+      
+      return Buffer.from(pdfBuffer);
+      
+    } finally {
+      // Clean up resources
+      if (page) {
+        try {
+          await page.close();
+        } catch (err) {
+          // Ignore close errors
+        }
+      }
+      
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (err) {
+          // Ignore close errors
+          try {
+            // Force kill if needed
+            const process = browser.process();
+            if (process && !process.killed) {
+              process.kill('SIGKILL');
+            }
+          } catch (killErr) {
+            // Ignore kill errors
+          }
+        }
+      }
+    }
+  }
+
 }
