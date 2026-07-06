@@ -224,7 +224,6 @@ export class OrdersService {
     let page: puppeteer.Page | null = null;
     
     try {
-      // Create fresh browser instance with minimal configuration
       browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -232,67 +231,53 @@ export class OrdersService {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--disable-web-security',
           '--hide-scrollbars',
-          '--mute-audio'
+          '--mute-audio',
         ],
-        timeout: 15000
+        timeout: 20000,
       });
       
       page = await browser.newPage();
       
-      // Set viewport
       await page.setViewport({ width: 800, height: 1200 });
-      
-      // Disable JavaScript for faster rendering
       await page.setJavaScriptEnabled(false);
       
-      // Set content
+      // Use networkidle0 so Puppeteer waits for all images (Cloudinary) to load
       await page.setContent(html, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 10000 
+        waitUntil: 'networkidle0',
+        timeout: 15000,
       });
       
-      // Generate PDF
       const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '12px',
-          right: '12px',
-          bottom: '12px',
-          left: '12px'
+          top: '16px',
+          right: '16px',
+          bottom: '16px',
+          left: '16px',
         },
-        scale: 0.85,
-        timeout: 8000
+        scale: 0.88,
+        timeout: 10000,
       });
       
       return Buffer.from(pdfBuffer);
       
     } finally {
-      // Clean up resources
       if (page) {
-        try {
-          await page.close();
-        } catch (err) {
-          // Ignore close errors
-        }
+        try { await page.close(); } catch { /* ignore */ }
       }
       
       if (browser) {
         try {
           await browser.close();
-        } catch (err) {
-          // Ignore close errors
+        } catch {
           try {
-            // Force kill if needed
-            const process = browser.process();
-            if (process && !process.killed) {
-              process.kill('SIGKILL');
+            const proc = browser.process();
+            if (proc && !proc.killed) {
+              proc.kill('SIGKILL');
             }
-          } catch (killErr) {
-            // Ignore kill errors
-          }
+          } catch { /* ignore */ }
         }
       }
     }

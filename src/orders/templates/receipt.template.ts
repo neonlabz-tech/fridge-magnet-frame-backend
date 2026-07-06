@@ -29,26 +29,22 @@ export interface ReceiptData {
 export class ReceiptTemplate {
   private static getLogoBase64(): string {
     try {
-      // Try multiple possible paths for the logo
       const possiblePaths = [
         path.join(__dirname, 'logo.png'),
         path.join(__dirname, '..', 'templates', 'logo.png'),
         path.join(process.cwd(), 'src', 'orders', 'templates', 'logo.png'),
-        path.join(process.cwd(), 'dist', 'orders', 'templates', 'logo.png')
+        path.join(process.cwd(), 'dist', 'orders', 'templates', 'logo.png'),
       ];
 
       let logoBuffer: Buffer | null = null;
-      let usedPath = '';
 
       for (const logoPath of possiblePaths) {
         try {
           if (fs.existsSync(logoPath)) {
             logoBuffer = fs.readFileSync(logoPath);
-            usedPath = logoPath;
             break;
           }
-        } catch (pathError) {
-          // Continue to next path
+        } catch {
           continue;
         }
       }
@@ -56,12 +52,10 @@ export class ReceiptTemplate {
       if (logoBuffer) {
         return `data:image/png;base64,${logoBuffer.toString('base64')}`;
       } else {
-        console.warn('Logo file not found in any expected location, using fallback');
         throw new Error('Logo file not found');
       }
     } catch (error) {
       console.error('Error loading logo.png:', error);
-      // Return a better fallback SVG logo
       return `data:image/svg+xml;base64,${Buffer.from(`
         <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -69,16 +63,11 @@ export class ReceiptTemplate {
               <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
               <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
             </linearGradient>
-            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.3"/>
-            </filter>
           </defs>
           <rect width="200" height="200" fill="white" rx="20"/>
-          <circle cx="100" cy="80" r="45" fill="url(#logoGradient)" filter="url(#shadow)"/>
-          <rect x="70" y="110" width="60" height="40" rx="5" fill="url(#logoGradient)" filter="url(#shadow)"/>
-          <circle cx="85" cy="65" r="8" fill="white" opacity="0.7"/>
-          <text x="100" y="88" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">M</text>
-          <text x="100" y="175" text-anchor="middle" fill="#334155" font-family="Arial, sans-serif" font-size="16" font-weight="bold">MAGNIFY</text>
+          <circle cx="100" cy="80" r="45" fill="url(#logoGradient)"/>
+          <text x="100" y="88" text-anchor="middle" fill="white" font-family="Arial" font-size="24" font-weight="bold">M</text>
+          <text x="100" y="175" text-anchor="middle" fill="#334155" font-family="Arial" font-size="16" font-weight="bold">MAGNIFY</text>
         </svg>
       `).toString('base64')}`;
     }
@@ -87,31 +76,64 @@ export class ReceiptTemplate {
   public static generateReceipt(data: ReceiptData): string {
     const date = new Date(data.createdAt).toLocaleDateString('en-US', {
       year: 'numeric',
-      month: 'short',
-      day: 'numeric'
+      month: 'long',
+      day: 'numeric',
     });
 
     const logoSrc = this.getLogoBase64();
-
-
     const deliveryFee = data.deliveryFee ?? 0;
-    const subtotal = data.subtotal ?? (data.totalValue - deliveryFee);
+    const subtotal = data.subtotal ?? data.totalValue - deliveryFee;
 
     let itemsHTML = '';
     if (data.items && data.items.length > 0) {
-      itemsHTML = data.items.map((item) => `
-        <tr>
-          <td class="item-desc">${item.name || 'Custom Magnet Frame'}</td>
-          <td class="item-qty">${item.quantity || 1}</td>
-          <td class="item-price">Rs ${(item.price || 0).toLocaleString()}</td>
-          <td class="item-total">Rs ${((item.price || 0) * (item.quantity || 1)).toLocaleString()}</td>
-        </tr>
-      `).join('');
+      itemsHTML = data.items
+        .map((item) => {
+          const itemTotal = (item.price || 0) * (item.quantity || 1);
+          const imageHTML = item.image
+            ? `<img src="${item.image}" alt="${item.name || 'Product'}" class="item-image" />`
+            : `<div class="item-image-placeholder">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <path d="M21 15l-5-5L5 21"/>
+                </svg>
+              </div>`;
+
+          const detailParts: string[] = [];
+          if (item.frameType) detailParts.push(item.frameType);
+          if (item.colorOption) detailParts.push(item.colorOption);
+          const detailText = detailParts.length > 0 ? `<div class="item-detail">${detailParts.join(' | ')}</div>` : '';
+
+          return `
+            <tr class="item-row">
+              <td class="item-image-cell">${imageHTML}</td>
+              <td class="item-desc">
+                <div class="item-name">${item.name || 'Custom Magnet Frame'}</div>
+                ${detailText}
+              </td>
+              <td class="item-qty">${item.quantity || 1}</td>
+              <td class="item-price">Rs ${(item.price || 0).toLocaleString()}</td>
+              <td class="item-total">Rs ${itemTotal.toLocaleString()}</td>
+            </tr>
+          `;
+        })
+        .join('');
     } else {
       const unitPrice = Math.round(subtotal / (data.qty || 1));
       itemsHTML = `
-        <tr>
-          <td class="item-desc">Custom Magnet Frame</td>
+        <tr class="item-row">
+          <td class="item-image-cell">
+            <div class="item-image-placeholder">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+              </svg>
+            </div>
+          </td>
+          <td class="item-desc">
+            <div class="item-name">Custom Magnet Frame</div>
+          </td>
           <td class="item-qty">${data.qty || 1}</td>
           <td class="item-price">Rs ${unitPrice.toLocaleString()}</td>
           <td class="item-total">Rs ${subtotal.toLocaleString()}</td>
@@ -119,13 +141,15 @@ export class ReceiptTemplate {
       `;
     }
 
+    const statusClass = data.status ? data.status.toLowerCase() : 'pending';
+
     return `
       <!DOCTYPE html>
       <html lang="en">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Purchase Order Confirmation - ${data.orderId}</title>
+        <title>Receipt - ${data.orderId}</title>
         <style>
           * {
             margin: 0;
@@ -134,371 +158,457 @@ export class ReceiptTemplate {
           }
 
           body {
-            font-family: 'Arial', 'Helvetica', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.5;
-            color: #333;
+            color: #1e293b;
             background: #ffffff;
-            padding: 20px;
+            padding: 24px;
             max-width: 800px;
             margin: 0 auto;
           }
 
           .receipt-container {
             background: white;
-            border: 1px solid #ddd;
-            padding: 30px;
-            height: auto;
-            max-height: none;
+            padding: 32px;
           }
 
-          /* Header Section */
+          /* ===== HEADER ===== */
           .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
-            padding: 20px 0 15px 0;
-            border-bottom: 2px solid #333;
-            min-height: 140px;
+            padding-bottom: 24px;
+            border-bottom: 3px solid #1e40af;
+            margin-bottom: 28px;
           }
 
           .logo-section {
             display: flex;
             align-items: center;
-            flex: 1;
-            max-width: 50%;
-          }
-
-          .logo {
-            width: 160px;
-            height: 120px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 30px;
-            flex-shrink: 0;
-            overflow: hidden;
           }
 
           .logo img {
-            width: 100%;
-            height: 100%;
+            width: 130px;
+            height: auto;
+            max-height: 90px;
             object-fit: contain;
           }
 
           .company-info {
             text-align: right;
-            font-size: 13px;
-            color: #666;
-            line-height: 1.4;
-            flex: 1;
-            max-width: 45%;
-          }
-
-          .company-info div {
-            margin-bottom: 3px;
-          }
-
-          /* Title Section */
-          .title-section {
-            text-align: center;
-            margin: 30px 0 40px 0;
-          }
-
-          .title-section h1 {
-            font-size: 28px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 8px;
-          }
-
-          .title-section h2 {
-            font-size: 20px;
-            font-weight: normal;
-            color: #333;
-            margin-bottom: 15px;
-          }
-
-          .instructions {
             font-size: 12px;
-            color: #666;
-            max-width: 600px;
-            margin: 0 auto;
-            text-align: left;
-            line-height: 1.6;
+            color: #475569;
+            line-height: 1.7;
           }
 
-          /* Vendor Information Section */
+          .company-info .company-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 4px;
+          }
+
+          /* ===== RECEIPT TITLE ===== */
+          .receipt-title {
+            text-align: center;
+            margin-bottom: 32px;
+          }
+
+          .receipt-title h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+            letter-spacing: -0.5px;
+          }
+
+          .receipt-title .order-number {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 4px;
+          }
+
+          .receipt-title .order-date {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 2px;
+          }
+
+          /* ===== STATUS BADGE ===== */
+          .status-section {
+            text-align: center;
+            margin-bottom: 28px;
+          }
+
+          .status-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+
+          .status-pending { background: #fef3c7; color: #92400e; }
+          .status-processing { background: #dbeafe; color: #1e40af; }
+          .status-shipped { background: #e0e7ff; color: #3730a3; }
+          .status-delivered { background: #d1fae5; color: #065f46; }
+          .status-canceled { background: #fee2e2; color: #991b1b; }
+
+          /* ===== CUSTOMER INFO ===== */
           .section {
-            margin-bottom: 35px;
+            margin-bottom: 28px;
           }
 
           .section-title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 15px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e40af;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e2e8f0;
           }
 
           .info-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 20px;
+            gap: 12px;
           }
 
           .info-field {
-            border: 1px solid #ddd;
-            padding: 10px 15px;
-            background: #f9f9f9;
+            padding: 10px 14px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 3px solid #e2e8f0;
           }
 
           .info-field .label {
-            font-size: 11px;
-            color: #666;
+            font-size: 10px;
+            color: #64748b;
             text-transform: uppercase;
-            margin-bottom: 5px;
-          }
-
-          .info-field .value {
-            font-size: 14px;
-            color: #333;
+            letter-spacing: 0.3px;
+            margin-bottom: 3px;
             font-weight: 500;
           }
 
-          /* Order Details Table */
+          .info-field .value {
+            font-size: 13px;
+            color: #1e293b;
+            font-weight: 500;
+          }
+
+          .info-field.full-width {
+            grid-column: 1 / -1;
+          }
+
+          /* ===== ORDER TABLE ===== */
           .order-table {
             width: 100%;
             border-collapse: collapse;
-            margin: 20px 0;
+            margin: 16px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+          }
+
+          .order-table thead tr {
+            background: #1e40af;
           }
 
           .order-table th {
-            background: #f5f5f5;
-            color: #333;
-            font-weight: bold;
+            color: #ffffff;
+            font-weight: 600;
             padding: 12px 10px;
             text-align: center;
-            border: 1px solid #ddd;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
           }
 
-          .order-table td {
-            padding: 15px 10px;
-            border: 1px solid #ddd;
-            font-size: 13px;
-            color: #555;
+          .order-table th:first-child {
             text-align: center;
+            width: 80px;
+          }
+
+          .order-table th:nth-child(2) {
+            text-align: left;
+          }
+
+          .item-row td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+          }
+
+          .item-row:last-child td {
+            border-bottom: none;
+          }
+
+          .item-image-cell {
+            text-align: center;
+            width: 80px;
+          }
+
+          .item-image {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+          }
+
+          .item-image-placeholder {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f1f5f9;
+            border-radius: 6px;
+            margin: 0 auto;
           }
 
           .item-desc {
             text-align: left !important;
-            font-weight: 500;
-            color: #333;
+          }
+
+          .item-name {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 13px;
+          }
+
+          .item-detail {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 3px;
           }
 
           .item-qty, .item-price, .item-total {
             text-align: center;
+            font-size: 13px;
+            color: #334155;
             font-weight: 500;
           }
 
-          .total-row {
-            background: #f9f9f9;
-            font-weight: bold;
-            border-top: 2px solid #333;
+          /* ===== TOTALS ===== */
+          .totals-section {
+            margin-top: 16px;
+            border-top: 2px solid #e2e8f0;
+            padding-top: 12px;
           }
 
-          .total-row td {
-            color: #333;
-            font-size: 14px;
-            padding: 18px 10px;
+          .totals-table {
+            width: 100%;
+            border-collapse: collapse;
           }
 
-          .subtotal-row td, .delivery-row td {
-            padding: 12px 10px;
-            border-top: 1px solid #ddd;
+          .totals-table td {
+            padding: 8px 10px;
+            font-size: 13px;
           }
 
-          /* Status Badge */
-          .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 3px;
+          .totals-table .label-cell {
+            text-align: right;
+            color: #64748b;
+            font-weight: 500;
+          }
+
+          .totals-table .value-cell {
+            text-align: right;
+            width: 140px;
+            color: #334155;
+            font-weight: 500;
+          }
+
+          .totals-table .total-final .label-cell {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1e293b;
+            padding-top: 12px;
+            border-top: 2px solid #1e40af;
+          }
+
+          .totals-table .total-final .value-cell {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1e40af;
+            padding-top: 12px;
+            border-top: 2px solid #1e40af;
+          }
+
+          /* ===== NOTES ===== */
+          .admin-note {
+            margin-top: 20px;
+            padding: 14px 16px;
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            border-radius: 4px;
+          }
+
+          .admin-note .label {
             font-size: 11px;
-            font-weight: bold;
+            color: #92400e;
             text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 4px;
           }
 
-          .status-pending { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-          .status-processing { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-          .status-shipped { background: #cce5ff; color: #004085; border: 1px solid #99d6ff; }
-          .status-delivered { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-          .status-canceled { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+          .admin-note .value {
+            font-size: 13px;
+            color: #78350f;
+          }
 
-          /* Print Styles */
+          /* ===== FOOTER ===== */
+          .footer {
+            margin-top: 36px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+          }
+
+          .footer .thank-you {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e40af;
+            margin-bottom: 8px;
+          }
+
+          .footer .footer-text {
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.6;
+          }
+
+          /* ===== PRINT ===== */
           @media print {
-            body { 
-              padding: 0; 
+            body {
+              padding: 0;
               -webkit-print-color-adjust: exact !important;
               color-adjust: exact !important;
             }
             .receipt-container {
               border: none;
-              box-shadow: none;
-            }
-            .logo img {
-              -webkit-print-color-adjust: exact !important;
-              color-adjust: exact !important;
-            }
-          }
-
-          /* Mobile Responsive */
-          @media (max-width: 768px) {
-            body {
-              padding: 10px;
-            }
-            
-            .receipt-container {
-              padding: 20px;
-            }
-            
-            .header {
-              flex-direction: column;
-              text-align: center;
-            }
-            
-            .logo {
-              width: 140px;
-              height: 100px;
-              margin: 0 auto 15px auto;
-            }
-            
-            .company-info {
-              text-align: center;
-              margin-top: 15px;
-            }
-            
-            .info-grid {
-              grid-template-columns: 1fr;
-            }
-            
-            .order-table th,
-            .order-table td {
-              padding: 8px 5px;
-              font-size: 11px;
             }
           }
         </style>
       </head>
       <body>
         <div class="receipt-container">
-          <!-- Header Section -->
+
+          <!-- Header -->
           <div class="header">
             <div class="logo-section">
               <div class="logo">
-                <img src="${logoSrc}" alt="MAGNIFY Logo" />
+                <img src="${logoSrc}" alt="MAGNIFY" />
               </div>
             </div>
             <div class="company-info">
+              <div class="company-name">MAGNIFY</div>
               <div>magnifyofficials@gmail.com</div>
-              <div>www.magnifyframes.com</div>
               <div>+94 75 391 2534</div>
-              <div>@magnify_officials</div>
+              <div>125A, KKS Road, Kokuvil, Jaffna</div>
+              <div>Instagram: @magnify_magnets</div>
             </div>
           </div>
 
-          <!-- Title Section -->
-          <div class="title-section">
-            <h1>Customer Receipt</h1>
-            <h2>Order Confirmation</h2>
-            <div class="instructions">
-              <strong>Thank you for choosing MAGNIFY!</strong> This receipt contains complete details of your purchase. 
-              Your custom fridge magnets are being prepared with care. Please keep this document for your records. 
-              For any questions about your order, please contact us using the information above.
-            </div>
+          <!-- Receipt Title -->
+          <div class="receipt-title">
+            <h1>Order Receipt</h1>
+            <div class="order-number">Order #${data.orderId}</div>
+            <div class="order-date">${date}</div>
+          </div>
+
+          <!-- Status -->
+          <div class="status-section">
+            <span class="status-badge status-${statusClass}">${data.status}</span>
           </div>
 
           <!-- Customer Information -->
           <div class="section">
-            <h3 class="section-title">Customer Information</h3>
+            <h3 class="section-title">Customer Details</h3>
             <div class="info-grid">
               <div class="info-field">
-                <div class="label">Customer Name</div>
+                <div class="label">Name</div>
                 <div class="value">${data.customerName}</div>
               </div>
               <div class="info-field">
-                <div class="label">Email Address</div>
+                <div class="label">Email</div>
                 <div class="value">${data.email}</div>
-              </div>
-              <div class="info-field">
-                <div class="label">Order Number</div>
-                <div class="value">${data.orderId}</div>
-              </div>
-              <div class="info-field">
-                <div class="label">Order Date</div>
-                <div class="value">${date}</div>
               </div>
               ${data.phone ? `
               <div class="info-field">
-                <div class="label">Phone Number</div>
+                <div class="label">Phone</div>
                 <div class="value">${data.phone}</div>
               </div>
               ` : ''}
-              <div class="info-field">
-                <div class="label">Order Status</div>
-                <div class="value">
-                  <span class="status-badge status-${data.status.toLowerCase()}">${data.status}</span>
-                </div>
-              </div>
-            </div>
-            ${data.shippingAddress ? `
-            <div class="info-grid">
-              <div class="info-field" style="grid-column: 1 / -1;">
+              ${data.shippingAddress ? `
+              <div class="info-field${!data.phone ? ' full-width' : ''}">
                 <div class="label">Delivery Address</div>
                 <div class="value">${data.shippingAddress}${data.district ? `, ${data.district}` : ''}</div>
               </div>
+              ` : ''}
             </div>
-            ` : ''}
           </div>
 
-          <!-- Order Details -->
+          <!-- Order Items -->
           <div class="section">
-            <h3 class="section-title">Order Details</h3>
+            <h3 class="section-title">Order Items</h3>
             <table class="order-table">
               <thead>
                 <tr>
-                  <th>Item Description</th>
-                  <th>Quantity</th>
-                  <th>Unit Price</th>
+                  <th>Image</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Price</th>
                   <th>Total</th>
                 </tr>
               </thead>
               <tbody>
                 ${itemsHTML}
-                <tr class="subtotal-row">
-                  <td colspan="3" style="text-align: right; font-weight: 600; color: #666;">Subtotal</td>
-                  <td style="font-weight: 600; color: #666;">Rs ${subtotal.toLocaleString()}</td>
-                </tr>
-                ${data.shippingAddress || deliveryFee > 0 ? `
-                <tr class="delivery-row">
-                  <td colspan="3" style="text-align: right; font-weight: 600; color: #666;">Delivery Fee</td>
-                  <td style="font-weight: 600; color: #666;">Rs ${deliveryFee.toLocaleString()}</td>
-                </tr>
-                ` : ''}
-                <tr class="total-row">
-                  <td colspan="3" style="text-align: right; font-weight: bold; font-size: 16px;">Total Amount</td>
-                  <td style="font-weight: bold; font-size: 16px;">Rs ${data.totalValue.toLocaleString()}</td>
-                </tr>
               </tbody>
             </table>
+
+            <!-- Totals -->
+            <div class="totals-section">
+              <table class="totals-table">
+                <tr>
+                  <td class="label-cell">Subtotal</td>
+                  <td class="value-cell">Rs ${subtotal.toLocaleString()}</td>
+                </tr>
+                ${data.shippingAddress || deliveryFee > 0 ? `
+                <tr>
+                  <td class="label-cell">Delivery Fee</td>
+                  <td class="value-cell">Rs ${deliveryFee.toLocaleString()}</td>
+                </tr>
+                ` : ''}
+                <tr class="total-final">
+                  <td class="label-cell">Total Amount</td>
+                  <td class="value-cell">Rs ${data.totalValue.toLocaleString()}</td>
+                </tr>
+              </table>
+            </div>
+
             ${data.adminNote ? `
-            <div class="info-field" style="margin-top: 20px;">
-              <div class="label">Additional Notes</div>
+            <div class="admin-note">
+              <div class="label">Note</div>
               <div class="value">${data.adminNote}</div>
             </div>
             ` : ''}
           </div>
+
+          <!-- Footer -->
+          <div class="footer">
+            <div class="thank-you">Thank you for choosing MAGNIFY!</div>
+            <div class="footer-text">
+              Your custom fridge magnets are being prepared with care.<br/>
+              For any questions, contact us at magnifyofficials@gmail.com or call +94 75 391 2534.<br/>
+              125A, KKS Road, Kokuvil, Jaffna
+            </div>
+          </div>
+
         </div>
       </body>
       </html>
