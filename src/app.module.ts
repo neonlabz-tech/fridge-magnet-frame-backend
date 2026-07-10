@@ -13,7 +13,6 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { OrdersModule } from './orders/orders.module';
-import { CustomerModule } from './customer/customer.module';
 import { ProductsModule } from './products/products.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MailModule } from './mail/mail.module';
@@ -27,6 +26,10 @@ const logger = new Logger('MongoDB');
     ConfigModule.forRoot({ isGlobal: true }),
 
     MongooseModule.forRoot(process.env.MONGODB_URI as string, {
+     
+      serverSelectionTimeoutMS: 5000,   
+      connectTimeoutMS: 10000,          
+      socketTimeoutMS: 45000,           
       connectionFactory: (connection) => {
         connection.on('connected', () => {
           logger.log('✅ MongoDB connected successfully');
@@ -43,7 +46,6 @@ const logger = new Logger('MongoDB');
     AuthModule,
     UsersModule,
     OrdersModule,
-    CustomerModule,
     ProductsModule,
     CloudinaryModule,
     MailModule,

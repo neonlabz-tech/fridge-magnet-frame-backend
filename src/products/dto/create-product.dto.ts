@@ -8,33 +8,33 @@ export class PersonalizationLabelDto {
 
 export class CreateProductDto {
   @IsString()
-  productName: string;
+  productName!: string;
 
   @IsString()
-  productId: string;
+  productId!: string;
 
-  @IsString()
-  category: string;
+  // @IsString()
+  // category!: string;
 
   @Type(() => Number)
   @IsNumber()
-  stock: number;
+  stock!: number;
 
   @Type(() => Number)
   @IsNumber()
-  price: number;
+  price!: number;
 
   @IsString()
-  description: string;
+  description!: string;
 
-  @IsOptional()
-  @Transform(({ value }) =>
-    value === undefined || value === null || value === ''
-      ? undefined
-      : value === true || value === 'true',
-  )
-  @IsIn([true, false])
-  personalizationEnabled?: boolean;
+  // @IsOptional()
+  // @Transform(({ value }) =>
+  //   value === undefined || value === null || value === ''
+  //     ? undefined
+  //     : value === true || value === 'true',
+  // )
+  // @IsIn([true, false])
+  // personalizationEnabled?: boolean;
 
   @IsOptional()
   @Transform(({ value }) => {

@@ -1,3 +1,4 @@
+
 import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -5,8 +6,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 import { UsersModule } from '../users/users.module';
-import { CustomerModule } from '../customer/customer.module';
 import { PassportModule } from '@nestjs/passport';
+import { CloudinaryModule } from '../cloudinary/cloudinary.module';
+import { ValidationPipe } from '@nestjs/common';
+// BUG-009 FIX: Import the new MailService.
+import { MailService } from './mail.service';
 
 @Module({
   imports: [
@@ -23,10 +27,12 @@ import { PassportModule } from '@nestjs/passport';
       }),
     }),
     UsersModule,
-    CustomerModule,
+    CloudinaryModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  // BUG-009 FIX: MailService is added here so NestJS's DI container
+  // can resolve it when AuthService requests it via constructor injection.
+  providers: [AuthService, JwtStrategy, MailService],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

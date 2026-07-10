@@ -3,27 +3,31 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
-import { CustomerService } from '../customer/customer.service';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as crypto from 'crypto';
-import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
-    private customerService: CustomerService,
     private mailService: MailService,
     private configService: ConfigService,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -45,7 +49,6 @@ export class AuthService {
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
-      console.warn(`[Auth] Login failed – no account for: ${loginDto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -58,14 +61,11 @@ export class AuthService {
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
 
     if (!passwordValid) {
-      console.warn(
-        `[Auth] Login failed – wrong password for: ${loginDto.email}`,
-      );
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (user.role === 'user') {
-      await this.customerService.ensureForRegisteredUser({
+      await this.usersService.ensureForRegisteredUser({
         email: user.email,
         fullName: user.fullName,
       });
@@ -77,8 +77,11 @@ export class AuthService {
       role: user.role,
     };
 
+    const token = this.jwtService.sign(payload);
+
     return {
-      token: this.jwtService.sign(payload),
+      token,
+      access_token: token,
       user: {
         id: user._id,
         fullName: user.fullName,
@@ -103,19 +106,28 @@ export class AuthService {
       registerDto.fullName,
     );
 
-    await this.customerService.ensureForRegisteredUser({
+    await this.usersService.ensureForRegisteredUser({
       email: user.email,
       fullName: registerDto.fullName,
     });
 
+    const payload = {
+      email: user.email,
+      sub: user._id.toString(),
+      role: user.role,
+    };
+    const token = this.jwtService.sign(payload);
+
     return {
-      message: 'Registration successful. Your account is awaiting approval.',
+      message: 'Registration successful. Please sign in.',
+      token,
+      access_token: token,
       user: {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
-        isActive: false,
+        isActive: true,
       },
     };
   }
@@ -128,25 +140,54 @@ export class AuthService {
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = await bcrypt.hash(resetToken, 10);
+
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     user.passwordResetToken = hashedToken;
-    user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
+    user.passwordResetExpires = expiresAt;
     await user.save();
 
-    const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const frontendBaseUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
-    const resetLink = `${frontendUrl.replace(
-      /\/$/,
-      '',
-    )}/reset-password?token=${encodeURIComponent(resetToken)}`;
+    const resetLink = `${frontendBaseUrl}/reset-password?token=${resetToken}`;
+
+    const resetHtml = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
+        <h2 style="color:#002B73;margin-bottom:8px">Magnify — Password Reset</h2>
+        <p style="color:#434652">We received a request to reset your Magnify account password.</p>
+        <p style="color:#434652">Click the button below to set a new password. This link is valid for 15 minutes.</p>
+        <p style="margin:24px 0">
+          <a href="${resetLink}"
+             style="background:#002B73;color:#ffffff;padding:12px 24px;border-radius:4px;text-decoration:none;display:inline-block">
+            Reset your password
+          </a>
+        </p>
+        <p style="font-size:13px;color:#9CA3AF">
+          Or paste this link into your browser:<br/>
+          <span style="word-break:break-all;color:#434652">${resetLink}</span>
+        </p>
+        <hr style="border:none;border-top:1px solid #EEF1F5;margin:24px 0"/>
+        <p style="font-size:12px;color:#9CA3AF">
+          If you did not request a password reset, you can safely ignore this email.
+        </p>
+      </div>
+    `;
 
     try {
       await this.mailService.sendMail({
         to: user.email,
         subject: 'Reset your Magnify password',
-        text: `Use this link to reset your password (valid for 15 minutes):\n\n${resetLink}`,
+        text:
+          `We received a request to reset your Magnify account password.\n\n` +
+          `Use this link to reset your password (valid for 15 minutes):\n\n${resetLink}\n\n` +
+          `If you did not request a password reset, you can safely ignore this email.`,
+        html: resetHtml,
       });
     } catch {
       user.passwordResetToken = undefined;
@@ -155,19 +196,16 @@ export class AuthService {
       throw new BadRequestException('Unable to send reset email right now');
     }
 
-    return { message: 'If that email exists, a reset link has been sent.' };
+    return {
+      message: 'If that email exists, a reset link has been sent.',
+      ...(process.env.NODE_ENV !== 'production' && { resetToken }),
+    };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
     const user = await this.usersService.findByResetToken(dto.token);
 
-    if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    const isValid = await bcrypt.compare(dto.token, user.passwordResetToken);
-
-    if (!isValid) {
+    if (!user || !user.passwordResetExpires) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
@@ -181,5 +219,128 @@ export class AuthService {
     await user.save();
 
     return { message: 'Password reset successful' };
+  }
+
+  private serializeProfile(user: any) {
+    return {
+      id: user._id,
+      fullName: user.fullName || '',
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      bio: user.bio || '',
+      avatar: user.avatar || '',
+      twoFactorEnabled: user.twoFactorEnabled || false,
+    };
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.usersService.findById(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return { user: this.serializeProfile(user) };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.usersService.findByIdWithPassword(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // If the email is changing, make sure it is not already taken.
+    if (dto.email && dto.email.toLowerCase() !== user.email) {
+      const existing = await this.usersService.findByEmail(dto.email);
+      if (existing) {
+        throw new ConflictException('Email already in use');
+      }
+    }
+
+    // Handle an optional password change.
+    if (dto.newPassword) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException(
+          'Current password is required to set a new password',
+        );
+      }
+
+      const passwordValid = await bcrypt.compare(
+        dto.currentPassword,
+        user.password,
+      );
+
+      if (!passwordValid) {
+        throw new BadRequestException('Current password is incorrect');
+      }
+
+      const hashed = await bcrypt.hash(dto.newPassword, 10);
+      await this.usersService.updatePassword(userId, hashed);
+    }
+
+    const profileUpdate: Record<string, unknown> = {};
+    if (dto.fullName !== undefined) profileUpdate.fullName = dto.fullName;
+    if (dto.email !== undefined) profileUpdate.email = dto.email.toLowerCase();
+    if (dto.bio !== undefined) profileUpdate.bio = dto.bio;
+    if (dto.twoFactorEnabled !== undefined)
+      profileUpdate.twoFactorEnabled = dto.twoFactorEnabled;
+
+    // When the avatar is explicitly cleared, remove the stored Cloudinary image.
+    if (dto.avatar !== undefined) {
+      profileUpdate.avatar = dto.avatar;
+      if (!dto.avatar && user.avatarPublicId) {
+        try {
+          await this.cloudinaryService.deleteImage(user.avatarPublicId);
+        } catch {
+          // Ignore cleanup failures; the reference is still cleared below.
+        }
+        profileUpdate.avatarPublicId = '';
+      }
+    }
+
+    const updated = Object.keys(profileUpdate).length
+      ? await this.usersService.updateProfile(userId, profileUpdate)
+      : await this.usersService.findById(userId);
+
+    return {
+      message: 'Profile updated successfully',
+      user: this.serializeProfile(updated),
+    };
+  }
+
+  async uploadAvatar(userId: string, file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No image file provided');
+    }
+
+    const user = await this.usersService.findByIdWithPassword(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Remove the previous avatar from Cloudinary before uploading the new one.
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.deleteImage(user.avatarPublicId);
+      } catch {
+        // Ignore cleanup failures and continue with the new upload.
+      }
+    }
+
+    const uploaded = await this.cloudinaryService.uploadImage(file, 'avatars');
+
+    const updated = await this.usersService.updateAvatar(
+      userId,
+      uploaded.secure_url,
+      uploaded.public_id,
+    );
+
+    return {
+      message: 'Avatar updated successfully',
+      user: this.serializeProfile(updated),
+    };
   }
 }
