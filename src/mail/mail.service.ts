@@ -1,29 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
-import { resolve4 } from 'dns/promises';
-
-interface SentInfo {
-  messageId?: string;
-  response?: string;
-  accepted?: string[];
-  rejected?: string[];
-}
-
-interface SmtpError extends Error {
-  code?: string;
-  command?: string;
-  response?: string;
-  responseCode?: number;
-}
-
-// 2 s minimum between consecutive sends — prevents burst patterns that trip
-// Gmail's abuse-detection heuristics even for legitimate transactional mail.
-const MIN_SEND_GAP_MS = 2000;
-
-// Backoff delays for retries (2 retries after the first attempt).
-// Longer gaps look less like automated hammering to receiving infrastructure.
-const RETRY_DELAYS_MS = [3000, 6000] as const;
+import { Resend } from 'resend';
 
 function escapeHtml(s: string): string {
   return s
@@ -36,171 +13,62 @@ function escapeHtml(s: string): string {
 @Injectable()
 export class MailService implements OnModuleInit {
   private readonly logger = new Logger(MailService.name);
-  private transporter: nodemailer.Transporter | null = null;
+  private readonly resend: Resend;
   private fromAddress: string;
-  private replyToAddress: string;
-  private lastSendTime = 0;
-
-  private readonly cfgHost: string | undefined;
-  private readonly cfgPort: number;
-  private readonly cfgSecure: boolean;
-  private readonly cfgUser: string | undefined;
-  private readonly cfgPass: string | undefined;
 
   constructor(config: ConfigService) {
-    this.cfgHost = config.get<string>('SMTP_HOST');
-    this.cfgPort = Number(config.get<string>('SMTP_PORT') || 587);
-    const secureEnv = config.get<string>('SMTP_SECURE');
-    this.cfgSecure =
-      secureEnv !== undefined ? secureEnv === 'true' : this.cfgPort === 465;
-    this.cfgUser = config.get<string>('SMTP_USER');
-    this.cfgPass = config.get<string>('SMTP_PASS')?.replace(/\s/g, '');
-    this.fromAddress = config.get<string>('SMTP_FROM') || this.cfgUser || '';
-    this.replyToAddress =
-      config.get<string>('SMTP_REPLY_TO') || this.cfgUser || '';
+    const apiKey = config.get<string>('RESEND_API_KEY');
+    this.fromAddress = config.get<string>('RESEND_FROM') || '';
+    this.resend = new Resend(apiKey || '');
 
-    if (!this.cfgHost || !this.cfgUser || !this.cfgPass) {
+    if (!apiKey || !this.fromAddress) {
       this.logger.warn(
-        '[Mail] SMTP config incomplete (need SMTP_HOST / SMTP_USER / SMTP_PASS) — email disabled',
+        '[Mail] Resend config incomplete (need RESEND_API_KEY / RESEND_FROM) — email disabled',
       );
     }
   }
 
   async onModuleInit(): Promise<void> {
-    if (!this.cfgHost || !this.cfgUser || !this.cfgPass) return;
-
-    // If Google ever surfaces a "suspicious sign-in" alert for this account and
-    // it wasn't confirmed as "Yes, it was me", subsequent sends will be silently
-    // throttled or dropped even after a 250 OK. Check this URL on each deploy.
-    this.logger.warn(
-      `[Mail] SECURITY CHECK: visit https://myaccount.google.com/security-checkup` +
-        ` and confirm no unreviewed alerts for ${this.cfgUser}`,
-    );
-
-    // Force IPv4: this server's IPv6 path to smtp.gmail.com returns EHOSTUNREACH.
-    // Node.js resolves AAAA first; nodemailer does not fall back to A automatically.
-    let connectHost = this.cfgHost;
-    try {
-      const [ipv4] = await resolve4(this.cfgHost);
-      connectHost = ipv4;
-      this.logger.log(`[Mail] ${this.cfgHost} → IPv4 ${ipv4}`);
-    } catch (dnsErr) {
-      this.logger.warn(
-        `[Mail] IPv4 lookup failed for ${this.cfgHost}: ` +
-          (dnsErr instanceof Error ? dnsErr.message : String(dnsErr)) +
-          ' — using hostname (may try IPv6)',
-      );
+    if (this.fromAddress) {
+      this.logger.log(`[Mail] Resend ready | from: ${this.fromAddress}`);
     }
-
-    this.transporter = nodemailer.createTransport({
-      host: connectHost,
-      port: this.cfgPort,
-      secure: this.cfgSecure,
-      auth: { user: this.cfgUser, pass: this.cfgPass },
-      tls: { servername: this.cfgHost }, // SNI must carry real hostname when dialling an IP
-      // Pool keeps one persistent connection; rate limiting enforced at transport level.
-      pool: true,
-      maxConnections: 1,
-      maxMessages: 5,   // recycle connection every 5 messages (Gmail tolerates long-lived but 5 is safe)
-      rateDelta: 1000,  // 1 s window
-      rateLimit: 1,     // max 1 message per rateDelta — our 2 s app-level throttle is more conservative anyway
-    });
-
-    try {
-      await this.transporter.verify();
-      this.logger.log(
-        `[Mail] SMTP ready — ${connectHost}:${this.cfgPort} | from: ${this.fromAddress}`,
-      );
-    } catch (err) {
-      const e = err as SmtpError;
-      this.logger.error(
-        `[Mail] verify() FAILED\n` +
-          `  host        : ${connectHost}:${this.cfgPort}\n` +
-          `  code        : ${e.code ?? '—'}\n` +
-          `  command     : ${e.command ?? '—'}\n` +
-          `  responseCode: ${e.responseCode ?? '—'}\n` +
-          `  response    : ${e.response ?? '—'}\n` +
-          `  message     : ${e.message}`,
-      );
-      this.transporter = null;
-    }
-  }
-
-  // ─── Rate-limit: enforce minimum gap between sends ────────────────────────
-
-  private async throttle(): Promise<void> {
-    const gap = Date.now() - this.lastSendTime;
-    if (gap < MIN_SEND_GAP_MS) {
-      await new Promise<void>((r) => setTimeout(r, MIN_SEND_GAP_MS - gap));
-    }
-    this.lastSendTime = Date.now();
-  }
-
-  // ─── Internal helper: throttle → send → retry-with-backoff ───────────────
-
-  private async doSend(
-    message: nodemailer.SendMailOptions,
-    label: string,
-  ): Promise<SentInfo> {
-    if (!this.transporter) {
-      throw new Error('SMTP transporter not ready (verify() failed at startup)');
-    }
-
-    const outgoing: nodemailer.SendMailOptions = {
-      from: this.fromAddress,
-      replyTo: this.replyToAddress,
-      // Explicitly mark as normal priority — omitting this can cause some MTAs
-      // to infer high-priority, which is a spam fingerprint for bulk senders.
-      priority: 'normal',
-      headers: {
-        // Identifies the sending app without leaking tech stack details.
-        'X-Mailer': 'Magnify',
-      },
-      ...message,
-    };
-
-    let lastErr: unknown;
-    const maxAttempts = 1 + RETRY_DELAYS_MS.length;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await this.throttle();
-        const info: SentInfo = await this.transporter.sendMail(outgoing);
-        this.logger.log(
-          `[Mail] SENT ${label}${attempt > 1 ? ` (attempt ${attempt})` : ''}\n` +
-            `  to          : ${Array.isArray(message.to) ? (message.to as string[]).join(', ') : message.to}\n` +
-            `  messageId   : ${info.messageId}\n` +
-            `  response    : ${info.response}\n` +
-            `  accepted    : ${info.accepted?.join(', ') || '—'}\n` +
-            `  rejected    : ${info.rejected?.join(', ') || 'none'}`,
-        );
-        return info;
-      } catch (err) {
-        lastErr = err;
-        if (attempt < maxAttempts) {
-          const delay = RETRY_DELAYS_MS[attempt - 1];
-          this.logger.warn(
-            `[Mail] send failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms — ` +
-              `${label} — ${(err as SmtpError).message ?? String(err)}`,
-          );
-          await new Promise<void>((r) => setTimeout(r, delay));
-        }
-      }
-    }
-
-    throw lastErr;
   }
 
   private logSendError(err: unknown, label: string): void {
-    const e = err as SmtpError;
     this.logger.error(
       `[Mail] FAILED ${label}\n` +
-        `  code        : ${e.code ?? '—'}\n` +
-        `  command     : ${e.command ?? '—'}\n` +
-        `  responseCode: ${e.responseCode ?? '—'}\n` +
-        `  response    : ${e.response ?? '—'}\n` +
-        `  message     : ${e instanceof Error ? e.message : String(e)}`,
+        `  message     : ${err instanceof Error ? err.message : String(err)}`,
     );
+  }
+
+  private async sendWithResend(options: {
+    to: string | string[];
+    subject: string;
+    text: string;
+    html?: string;
+    from?: string;
+    replyTo?: string;
+    headers?: Record<string, string>;
+  }): Promise<string> {
+    if (!this.fromAddress) {
+      throw new Error('Resend from address not configured');
+    }
+
+    const result = await this.resend.emails.send({
+      from: options.from || this.fromAddress,
+      to: options.to,
+      subject: options.subject,
+      text: options.text,
+      html: options.html,
+      replyTo: options.replyTo,
+      headers: options.headers,
+    });
+
+    if (result.error) {
+      throw new Error(result.error.message || 'Failed to send email with Resend');
+    }
+
+    return result.data?.id || '';
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
@@ -216,7 +84,21 @@ export class MailService implements OnModuleInit {
   }): Promise<void> {
     const label = `→ ${options.to} | "${options.subject}"`;
     try {
-      await this.doSend(options, label);
+      const messageId = await this.sendWithResend({
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+        replyTo: options.replyTo,
+        headers: {
+          'X-Mailer': 'Magnify',
+        },
+      });
+      this.logger.log(
+        `[Mail] SENT ${label}\n` +
+          `  to          : ${options.to}\n` +
+          `  messageId   : ${messageId || 'n/a'}`,
+      );
     } catch (err) {
       this.logSendError(err, label);
       throw err;
@@ -230,11 +112,11 @@ export class MailService implements OnModuleInit {
     newStatus: string;
     adminNote?: string;
   }): Promise<{ success: boolean; error?: string }> {
-    if (!this.transporter) {
+    if (!this.fromAddress) {
       this.logger.warn(
-        `[Mail] Order #${opts.orderId} — skipped (transporter not ready)`,
+        `[Mail] Order #${opts.orderId} — skipped (from address not ready)`,
       );
-      return { success: false, error: 'SMTP transporter not ready' };
+      return { success: false, error: 'Resend from address not ready' };
     }
 
     const statusLabel =
@@ -284,20 +166,21 @@ export class MailService implements OnModuleInit {
 
     const label = `order #${opts.orderId} → ${opts.to} (${statusLabel})`;
     try {
-      await this.doSend(
-        {
-          from: `Magnify Orders <${this.cfgUser ?? ''}>`,
-          to: opts.to,
-          subject: `Your Magnify order #${opts.orderId} is now ${statusLabel}`,
-          html,
-          text,
-          // List-Unsubscribe signals to Gmail that this is legitimate transactional
-          // mail from a sender who respects unsubscribe requests — positive deliverability signal.
-          headers: {
-            'List-Unsubscribe': `<mailto:${this.cfgUser}>`,
-          },
+      const messageId = await this.sendWithResend({
+        from: `Magnify Orders <${this.fromAddress}>`,
+        to: opts.to,
+        subject: `Your Magnify order #${opts.orderId} is now ${statusLabel}`,
+        html,
+        text,
+        headers: {
+          'List-Unsubscribe': `<mailto:${this.fromAddress}>`,
+          'X-Mailer': 'Magnify',
         },
-        label,
+      });
+      this.logger.log(
+        `[Mail] SENT ${label}\n` +
+          `  to          : ${opts.to}\n` +
+          `  messageId   : ${messageId || 'n/a'}`,
       );
       return { success: true };
     } catch (err) {
