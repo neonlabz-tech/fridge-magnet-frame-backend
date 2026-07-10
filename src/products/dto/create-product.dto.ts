@@ -3,7 +3,7 @@ import { Transform, Type } from 'class-transformer';
 
 export class PersonalizationLabelDto {
   @IsString()
-  label: string;
+  label!: string;
 }
 
 export class CreateProductDto {

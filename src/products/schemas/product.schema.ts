@@ -44,7 +44,7 @@ export class Product {
     ],
     default: [],
   })
-  personalization: Array<{
+  personalization!: Array<{
     label: string;
     image: { secure_url: string; public_id: string } | null;
   }>;
