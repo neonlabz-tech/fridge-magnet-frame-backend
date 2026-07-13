@@ -18,12 +18,12 @@ export class MailService implements OnModuleInit {
 
   constructor(config: ConfigService) {
     const apiKey = config.get<string>('RESEND_API_KEY');
-    this.fromAddress = config.get<string>('RESEND_FROM') || '';
+    this.fromAddress = config.get<string>('RESEND_FROM_EMAIL') || '';
     this.resend = new Resend(apiKey || '');
 
     if (!apiKey || !this.fromAddress) {
       this.logger.warn(
-        '[Mail] Resend config incomplete (need RESEND_API_KEY / RESEND_FROM) — email disabled',
+        '[Mail] Resend config incomplete (need RESEND_API_KEY / RESEND_FROM_EMAIL) — email disabled',
       );
     }
   }

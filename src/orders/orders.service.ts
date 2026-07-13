@@ -7,8 +7,7 @@ import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
-import { ReceiptTemplate, ReceiptData } from './templates/receipt.template';
-import * as puppeteer from 'puppeteer';
+import { PdfGeneratorService, ReceiptPdfData } from './services/pdf-generator.service';
 
 @Injectable()
 export class OrdersService {
@@ -28,6 +27,7 @@ export class OrdersService {
     private productModel: Model<ProductDocument>,
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
+    private readonly pdfGeneratorService: PdfGeneratorService,
   ) {}
 
   private getStatusFromStock(stock: number) {
@@ -191,7 +191,7 @@ export class OrdersService {
     const finalTotal = orderObj.totalValue;
     
     // Prepare receipt data
-    const receiptData: ReceiptData = {
+    const receiptData: ReceiptPdfData = {
       orderId: orderObj.orderId,
       customerName: orderObj.customerName,
       email: orderObj.email,
@@ -199,8 +199,8 @@ export class OrdersService {
       shippingAddress: orderObj.shippingAddress,
       district: orderObj.district,
       status: orderObj.status,
-      totalValue: finalTotal, // Use calculated total
-      subtotal: subtotal,     // Items subtotal
+      totalValue: finalTotal,
+      subtotal: subtotal,
       deliveryFee: deliveryFee,
       qty: orderObj.qty,
       items: orderObj.items,
@@ -209,77 +209,12 @@ export class OrdersService {
     };
 
     try {
-      const html = ReceiptTemplate.generateReceipt(receiptData);
-      const pdfBuffer = await this.generatePDFFromHTML(html);
+      const pdfBuffer = await this.pdfGeneratorService.generateReceipt(receiptData);
       this.logger.log(`PDF receipt generated successfully for order: ${orderNumber}`);
       return pdfBuffer;
     } catch (error) {
       this.logger.error(`PDF generation failed for order ${orderNumber}:`, error);
       throw new Error('Unable to generate receipt PDF. Please contact support.');
-    }
-  }
-
-  private async generatePDFFromHTML(html: string): Promise<Buffer> {
-    let browser: puppeteer.Browser | null = null;
-    let page: puppeteer.Page | null = null;
-    
-    try {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--hide-scrollbars',
-          '--mute-audio',
-        ],
-        timeout: 20000,
-      });
-      
-      page = await browser.newPage();
-      
-      await page.setViewport({ width: 800, height: 1200 });
-      await page.setJavaScriptEnabled(false);
-      
-      // Use networkidle0 so Puppeteer waits for all images (Cloudinary) to load
-      await page.setContent(html, { 
-        waitUntil: 'networkidle0',
-        timeout: 15000,
-      });
-      
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '16px',
-          right: '16px',
-          bottom: '16px',
-          left: '16px',
-        },
-        scale: 0.88,
-        timeout: 10000,
-      });
-      
-      return Buffer.from(pdfBuffer);
-      
-    } finally {
-      if (page) {
-        try { await page.close(); } catch { /* ignore */ }
-      }
-      
-      if (browser) {
-        try {
-          await browser.close();
-        } catch {
-          try {
-            const proc = browser.process();
-            if (proc && !proc.killed) {
-              proc.kill('SIGKILL');
-            }
-          } catch { /* ignore */ }
-        }
-      }
     }
   }
 
