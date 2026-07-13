@@ -8,7 +8,7 @@ import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
-import { ReceiptPdfGenerator, ReceiptData } from './templates/receipt.template';
+import { PdfGeneratorService, ReceiptPdfData } from './services/pdf-generator.service';
 
 @Injectable()
 export class OrdersService {
@@ -28,6 +28,7 @@ export class OrdersService {
     private productModel: Model<ProductDocument>,
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
+    private readonly pdfGeneratorService: PdfGeneratorService,
   ) {}
 
   private getStatusFromStock(stock: number) {
@@ -171,11 +172,9 @@ export class OrdersService {
 
     const orderObj = order.toObject();
 
-    // Calculate items subtotal from actual item data
     let itemsSubtotal = 0;
 
     if (orderObj.items && orderObj.items.length > 0) {
-      // Sum up each item's price × quantity from the stored order items
       itemsSubtotal = orderObj.items.reduce((sum, item) => {
         const itemPrice = Number(item.price || 0);
         const itemQuantity = Number(item.quantity || 1);
@@ -189,8 +188,6 @@ export class OrdersService {
       : 0;
     const finalTotal = orderObj.totalValue;
 
-    // Convert item image URLs (e.g. Cloudinary) to base64 - jsPDF's addImage()
-    // requires base64/data-URI input, it cannot fetch remote URLs itself.
     const itemsWithBase64Images = orderObj.items && orderObj.items.length > 0
       ? await Promise.all(
           orderObj.items.map(async (item) => {
@@ -202,7 +199,6 @@ export class OrdersService {
                 this.logger.warn(
                   `[Orders] Failed to convert item image to base64 for order ${orderNumber}: ${err}`,
                 );
-                // Fall back to no image rather than failing the whole receipt
                 return { ...item, image: undefined };
               }
             }
@@ -211,8 +207,7 @@ export class OrdersService {
         )
       : orderObj.items;
 
-    // Prepare receipt data
-    const receiptData: ReceiptData = {
+    const receiptData: ReceiptPdfData = {
       orderId: orderObj.orderId,
       customerName: orderObj.customerName,
       email: orderObj.email,
@@ -220,8 +215,8 @@ export class OrdersService {
       shippingAddress: orderObj.shippingAddress,
       district: orderObj.district,
       status: orderObj.status,
-      totalValue: finalTotal, // Use calculated total
-      subtotal: subtotal,     // Items subtotal
+      totalValue: finalTotal,
+      subtotal: subtotal,
       deliveryFee: deliveryFee,
       qty: orderObj.qty,
       items: itemsWithBase64Images,
@@ -230,7 +225,7 @@ export class OrdersService {
     };
 
     try {
-      const pdfBuffer = ReceiptPdfGenerator.generateReceipt(receiptData);
+      const pdfBuffer = await this.pdfGeneratorService.generateReceipt(receiptData);
       this.logger.log(`PDF receipt generated successfully for order: ${orderNumber}`);
       return pdfBuffer;
     } catch (error) {
@@ -239,13 +234,6 @@ export class OrdersService {
     }
   }
 
-  /**
-   * Fetches a remote image (e.g. Cloudinary product image URL) and converts
-   * it to a base64 data URI so jsPDF's addImage() can render it.
-   *
-   * Forces Cloudinary to serve JPEG (via f_jpg transformation) instead of
-   * letting it auto-negotiate WebP/AVIF - jsPDF only reliably renders JPEG/PNG.
-   */
   private async imageUrlToBase64(url: string): Promise<string> {
     const jpegUrl = url.includes('cloudinary.com')
       ? url.replace('/upload/', '/upload/f_jpg/')

@@ -6,6 +6,7 @@ import { Order, OrderSchema } from './schemas/order.schema';
 import { Product, ProductSchema } from '../products/schemas/product.schema';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
+import { PdfGeneratorService } from './services/pdf-generator.service';
 
 @Module({
   imports: [
@@ -17,6 +18,6 @@ import { MailModule } from '../mail/mail.module';
     ]),
   ],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, PdfGeneratorService],
 })
 export class OrdersModule {}
