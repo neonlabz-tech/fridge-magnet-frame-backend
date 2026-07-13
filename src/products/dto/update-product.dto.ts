@@ -24,7 +24,6 @@ export class UpdateProductDto {
   // @IsOptional()
   // personalizationEnabled?: any;
 
-<<<<<<< HEAD
   @IsOptional()
   @Transform(({ value }) => {
     if (!value) return [];
@@ -60,10 +59,6 @@ export class UpdateProductDto {
   @ValidateNested({ each: true })
   @Type(() => PersonalizationLabelDto)
   personalization?: PersonalizationLabelDto[];
-=======
-  // @IsOptional()
-  // personalization?: string[];
->>>>>>> 1871ade35ea5e3b2bb9afa51fdb4b3e33cf235ea
 
   @IsOptional()
   status?: string;

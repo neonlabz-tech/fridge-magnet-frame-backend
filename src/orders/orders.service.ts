@@ -1,14 +1,14 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import axios from 'axios';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
-import { ReceiptTemplate, ReceiptData } from './templates/receipt.template';
-import * as puppeteer from 'puppeteer';
+import { ReceiptPdfGenerator, ReceiptData } from './templates/receipt.template';
 
 @Injectable()
 export class OrdersService {
@@ -170,10 +170,10 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
 
     const orderObj = order.toObject();
-    
+
     // Calculate items subtotal from actual item data
     let itemsSubtotal = 0;
-    
+
     if (orderObj.items && orderObj.items.length > 0) {
       // Sum up each item's price × quantity from the stored order items
       itemsSubtotal = orderObj.items.reduce((sum, item) => {
@@ -182,14 +182,35 @@ export class OrdersService {
         return sum + (itemPrice * itemQuantity);
       }, 0);
     }
-    
-    
+
     const subtotal = Math.max(0, itemsSubtotal);
     const deliveryFee = subtotal > 0
       ? Math.max(0, orderObj.totalValue - subtotal)
-      : 0;  
+      : 0;
     const finalTotal = orderObj.totalValue;
-    
+
+    // Convert item image URLs (e.g. Cloudinary) to base64 - jsPDF's addImage()
+    // requires base64/data-URI input, it cannot fetch remote URLs itself.
+    const itemsWithBase64Images = orderObj.items && orderObj.items.length > 0
+      ? await Promise.all(
+          orderObj.items.map(async (item) => {
+            if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) {
+              try {
+                const base64Image = await this.imageUrlToBase64(item.image);
+                return { ...item, image: base64Image };
+              } catch (err) {
+                this.logger.warn(
+                  `[Orders] Failed to convert item image to base64 for order ${orderNumber}: ${err}`,
+                );
+                // Fall back to no image rather than failing the whole receipt
+                return { ...item, image: undefined };
+              }
+            }
+            return item;
+          }),
+        )
+      : orderObj.items;
+
     // Prepare receipt data
     const receiptData: ReceiptData = {
       orderId: orderObj.orderId,
@@ -203,14 +224,13 @@ export class OrdersService {
       subtotal: subtotal,     // Items subtotal
       deliveryFee: deliveryFee,
       qty: orderObj.qty,
-      items: orderObj.items,
+      items: itemsWithBase64Images,
       createdAt: (orderObj as any).createdAt || new Date(),
       adminNote: orderObj.adminNote,
     };
 
     try {
-      const html = ReceiptTemplate.generateReceipt(receiptData);
-      const pdfBuffer = await this.generatePDFFromHTML(html);
+      const pdfBuffer = ReceiptPdfGenerator.generateReceipt(receiptData);
       this.logger.log(`PDF receipt generated successfully for order: ${orderNumber}`);
       return pdfBuffer;
     } catch (error) {
@@ -219,68 +239,22 @@ export class OrdersService {
     }
   }
 
-  private async generatePDFFromHTML(html: string): Promise<Buffer> {
-    let browser: puppeteer.Browser | null = null;
-    let page: puppeteer.Page | null = null;
-    
-    try {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--hide-scrollbars',
-          '--mute-audio',
-        ],
-        timeout: 20000,
-      });
-      
-      page = await browser.newPage();
-      
-      await page.setViewport({ width: 800, height: 1200 });
-      await page.setJavaScriptEnabled(false);
-      
-      // Use networkidle0 so Puppeteer waits for all images (Cloudinary) to load
-      await page.setContent(html, { 
-        waitUntil: 'networkidle0',
-        timeout: 15000,
-      });
-      
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '16px',
-          right: '16px',
-          bottom: '16px',
-          left: '16px',
-        },
-        scale: 0.88,
-        timeout: 10000,
-      });
-      
-      return Buffer.from(pdfBuffer);
-      
-    } finally {
-      if (page) {
-        try { await page.close(); } catch { /* ignore */ }
-      }
-      
-      if (browser) {
-        try {
-          await browser.close();
-        } catch {
-          try {
-            const proc = browser.process();
-            if (proc && !proc.killed) {
-              proc.kill('SIGKILL');
-            }
-          } catch { /* ignore */ }
-        }
-      }
-    }
-  }
+  /**
+   * Fetches a remote image (e.g. Cloudinary product image URL) and converts
+   * it to a base64 data URI so jsPDF's addImage() can render it.
+   *
+   * Forces Cloudinary to serve JPEG (via f_jpg transformation) instead of
+   * letting it auto-negotiate WebP/AVIF - jsPDF only reliably renders JPEG/PNG.
+   */
+  private async imageUrlToBase64(url: string): Promise<string> {
+    const jpegUrl = url.includes('cloudinary.com')
+      ? url.replace('/upload/', '/upload/f_jpg/')
+      : url;
 
+    const response = await axios.get(jpegUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+    });
+    return `data:image/jpeg;base64,${Buffer.from(response.data).toString('base64')}`;
+  }
 }

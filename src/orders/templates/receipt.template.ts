@@ -1,3 +1,5 @@
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -18,7 +20,7 @@ export interface ReceiptData {
     name?: string;
     price?: number;
     quantity?: number;
-    image?: string;
+    image?: string; // base64 or URL - must be pre-converted to base64 before calling this
     frameType?: string;
     colorOption?: string;
   }>;
@@ -26,8 +28,19 @@ export interface ReceiptData {
   adminNote?: string;
 }
 
-export class ReceiptTemplate {
-  private static getLogoBase64(): string {
+// Status badge colors [background, text] - RGB
+const STATUS_COLORS: Record<string, { bg: [number, number, number]; text: [number, number, number] }> = {
+  pending: { bg: [254, 243, 199], text: [146, 64, 14] },
+  processing: { bg: [219, 234, 254], text: [30, 64, 175] },
+  shipped: { bg: [224, 231, 255], text: [55, 48, 163] },
+  delivered: { bg: [209, 250, 229], text: [6, 95, 70] },
+  canceled: { bg: [254, 226, 226], text: [153, 27, 27] },
+};
+
+const BRAND_BLUE: [number, number, number] = [30, 64, 175]; // #1e40af
+
+export class ReceiptPdfGenerator {
+  private static getLogoBase64(): string | null {
     try {
       const possiblePaths = [
         path.join(__dirname, 'logo.png'),
@@ -36,582 +49,337 @@ export class ReceiptTemplate {
         path.join(process.cwd(), 'dist', 'orders', 'templates', 'logo.png'),
       ];
 
-      let logoBuffer: Buffer | null = null;
-
       for (const logoPath of possiblePaths) {
-        try {
-          if (fs.existsSync(logoPath)) {
-            logoBuffer = fs.readFileSync(logoPath);
-            break;
-          }
-        } catch {
-          continue;
+        if (fs.existsSync(logoPath)) {
+          const buffer = fs.readFileSync(logoPath);
+          return `data:image/png;base64,${buffer.toString('base64')}`;
         }
       }
-
-      if (logoBuffer) {
-        return `data:image/png;base64,${logoBuffer.toString('base64')}`;
-      } else {
-        throw new Error('Logo file not found');
-      }
+      return null;
     } catch (error) {
       console.error('Error loading logo.png:', error);
-      return `data:image/svg+xml;base64,${Buffer.from(`
-        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
-              <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
-            </linearGradient>
-          </defs>
-          <rect width="200" height="200" fill="white" rx="20"/>
-          <circle cx="100" cy="80" r="45" fill="url(#logoGradient)"/>
-          <text x="100" y="88" text-anchor="middle" fill="white" font-family="Arial" font-size="24" font-weight="bold">M</text>
-          <text x="100" y="175" text-anchor="middle" fill="#334155" font-family="Arial" font-size="16" font-weight="bold">MAGNIFY</text>
-        </svg>
-      `).toString('base64')}`;
+      return null;
     }
   }
 
-  public static generateReceipt(data: ReceiptData): string {
+  public static generateReceipt(data: ReceiptData): Buffer {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // pt units, easier to reason with font sizes
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 40;
+    let y = 40;
+
     const date = new Date(data.createdAt).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
     });
 
-    const logoSrc = this.getLogoBase64();
     const deliveryFee = data.deliveryFee ?? 0;
     const subtotal = data.subtotal ?? data.totalValue - deliveryFee;
 
-    let itemsHTML = '';
-    if (data.items && data.items.length > 0) {
-      itemsHTML = data.items
-        .map((item) => {
-          const itemTotal = (item.price || 0) * (item.quantity || 1);
-          const imageHTML = item.image
-            ? `<img src="${item.image}" alt="${item.name || 'Product'}" class="item-image" />`
-            : `<div class="item-image-placeholder">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <circle cx="8.5" cy="8.5" r="1.5"/>
-                  <path d="M21 15l-5-5L5 21"/>
-                </svg>
-              </div>`;
-
-          const detailParts: string[] = [];
-          if (item.frameType) detailParts.push(item.frameType);
-          if (item.colorOption) detailParts.push(item.colorOption);
-          const detailText = detailParts.length > 0 ? `<div class="item-detail">${detailParts.join(' | ')}</div>` : '';
-
-          return `
-            <tr class="item-row">
-              <td class="item-image-cell">${imageHTML}</td>
-              <td class="item-desc">
-                <div class="item-name">${item.name || 'Custom Magnet Frame'}</div>
-                ${detailText}
-              </td>
-              <td class="item-qty">${item.quantity || 1}</td>
-              <td class="item-price">Rs ${(item.price || 0).toLocaleString()}</td>
-              <td class="item-total">Rs ${itemTotal.toLocaleString()}</td>
-            </tr>
-          `;
-        })
-        .join('');
-    } else {
-      const unitPrice = Math.round(subtotal / (data.qty || 1));
-      itemsHTML = `
-        <tr class="item-row">
-          <td class="item-image-cell">
-            <div class="item-image-placeholder">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/>
-                <path d="M21 15l-5-5L5 21"/>
-              </svg>
-            </div>
-          </td>
-          <td class="item-desc">
-            <div class="item-name">Custom Magnet Frame</div>
-          </td>
-          <td class="item-qty">${data.qty || 1}</td>
-          <td class="item-price">Rs ${unitPrice.toLocaleString()}</td>
-          <td class="item-total">Rs ${subtotal.toLocaleString()}</td>
-        </tr>
-      `;
+    // ===== HEADER: Logo (left) + Company info (right) =====
+    const logoBase64 = this.getLogoBase64();
+    if (logoBase64) {
+      try {
+        doc.addImage(logoBase64, 'PNG', margin, y, 90, 60);
+      } catch (e) {
+        console.error('Logo render failed:', e);
+      }
     }
 
-    const statusClass = data.status ? data.status.toLowerCase() : 'pending';
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND_BLUE);
+    doc.text('MAGNIFY', pageWidth - margin, y + 10, { align: 'right' });
 
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Receipt - ${data.orderId}</title>
-        <style>
-          * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-          }
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105); // slate-600
+    const companyLines = [
+      'magnifyofficials@gmail.com',
+      '+94 75 391 2534',
+      '125A, KKS Road, Kokuvil, Jaffna',
+      'Instagram: @magnify_magnets',
+    ];
+    companyLines.forEach((line, i) => {
+      doc.text(line, pageWidth - margin, y + 24 + i * 12, { align: 'right' });
+    });
 
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.5;
-            color: #1e293b;
-            background: #ffffff;
-            padding: 24px;
-            max-width: 800px;
-            margin: 0 auto;
-          }
+    y += 75;
 
-          .receipt-container {
-            background: white;
-            padding: 32px;
-          }
+    // Header bottom border
+    doc.setDrawColor(...BRAND_BLUE);
+    doc.setLineWidth(2);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 30;
 
-          /* ===== HEADER ===== */
-          .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 24px;
-            border-bottom: 3px solid #1e40af;
-            margin-bottom: 28px;
-          }
+    // ===== RECEIPT TITLE =====
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59); // slate-800
+    doc.text('Order Receipt', pageWidth / 2, y, { align: 'center' });
+    y += 18;
 
-          .logo-section {
-            display: flex;
-            align-items: center;
-          }
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Order #${data.orderId}`, pageWidth / 2, y, { align: 'center' });
+    y += 14;
+    doc.text(date, pageWidth / 2, y, { align: 'center' });
+    y += 24;
 
-          .logo img {
-            width: 130px;
-            height: auto;
-            max-height: 90px;
-            object-fit: contain;
-          }
+    // ===== STATUS BADGE =====
+    const statusKey = (data.status || 'pending').toLowerCase();
+    const statusColor = STATUS_COLORS[statusKey] || STATUS_COLORS.pending;
+    const badgeText = data.status.toUpperCase();
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    const badgeWidth = doc.getTextWidth(badgeText) + 24;
+    const badgeX = pageWidth / 2 - badgeWidth / 2;
 
-          .company-info {
-            text-align: right;
-            font-size: 12px;
-            color: #475569;
-            line-height: 1.7;
-          }
+    doc.setFillColor(...statusColor.bg);
+    doc.roundedRect(badgeX, y - 12, badgeWidth, 20, 10, 10, 'F');
+    doc.setTextColor(...statusColor.text);
+    doc.text(badgeText, pageWidth / 2, y + 2, { align: 'center' });
+    y += 35;
 
-          .company-info .company-name {
-            font-size: 18px;
-            font-weight: 700;
-            color: #1e40af;
-            margin-bottom: 4px;
-          }
+    // ===== CUSTOMER DETAILS =====
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND_BLUE);
+    doc.text('CUSTOMER DETAILS', margin, y);
+    y += 5;
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 18;
 
-          /* ===== RECEIPT TITLE ===== */
-          .receipt-title {
-            text-align: center;
-            margin-bottom: 32px;
-          }
+    const fieldBoxWidth = (pageWidth - margin * 2 - 12) / 2;
 
-          .receipt-title h1 {
-            font-size: 24px;
-            font-weight: 700;
-            color: #1e293b;
-            letter-spacing: -0.5px;
-          }
+    // Returns the box height it drew, based on how many lines the value wraps to.
+    // This is what lets a long delivery address grow the box instead of overflowing it.
+    const drawInfoField = (x: number, boxY: number, label: string, value: string, fullWidth = false): number => {
+      const w = fullWidth ? pageWidth - margin * 2 : fieldBoxWidth;
+      const innerWidth = w - 20;
 
-          .receipt-title .order-number {
-            font-size: 14px;
-            color: #64748b;
-            margin-top: 4px;
-          }
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      const valueLines: string[] = doc.splitTextToSize(value || '', innerWidth);
+      const lineHeight = 12;
+      const boxHeight = Math.max(34, 22 + valueLines.length * lineHeight);
 
-          .receipt-title .order-date {
-            font-size: 13px;
-            color: #64748b;
-            margin-top: 2px;
-          }
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.rect(x, boxY, w, boxHeight, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(2);
+      doc.line(x, boxY, x, boxY + boxHeight); // left accent border
 
-          /* ===== STATUS BADGE ===== */
-          .status-section {
-            text-align: center;
-            margin-bottom: 28px;
-          }
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(label.toUpperCase(), x + 10, boxY + 12);
 
-          .status-badge {
-            display: inline-block;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(valueLines, x + 10, boxY + 26);
 
-          .status-pending { background: #fef3c7; color: #92400e; }
-          .status-processing { background: #dbeafe; color: #1e40af; }
-          .status-shipped { background: #e0e7ff; color: #3730a3; }
-          .status-delivered { background: #d1fae5; color: #065f46; }
-          .status-canceled { background: #fee2e2; color: #991b1b; }
+      return boxHeight;
+    };
 
-          /* ===== CUSTOMER INFO ===== */
-          .section {
-            margin-bottom: 28px;
-          }
+    const nameBoxHeight = drawInfoField(margin, y, 'Name', data.customerName);
+    const emailBoxHeight = drawInfoField(margin + fieldBoxWidth + 12, y, 'Email', data.email);
+    y += Math.max(nameBoxHeight, emailBoxHeight) + 12;
 
-          .section-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: #1e40af;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 12px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid #e2e8f0;
-          }
+    let secondRowHeight = 0;
+    if (data.phone) {
+      secondRowHeight = Math.max(secondRowHeight, drawInfoField(margin, y, 'Phone', data.phone));
+    }
+    if (data.shippingAddress) {
+      const addressText = `${data.shippingAddress}${data.district ? `, ${data.district}` : ''}`;
+      if (data.phone) {
+        secondRowHeight = Math.max(
+          secondRowHeight,
+          drawInfoField(margin + fieldBoxWidth + 12, y, 'Delivery Address', addressText),
+        );
+      } else {
+        secondRowHeight = Math.max(secondRowHeight, drawInfoField(margin, y, 'Delivery Address', addressText, true));
+      }
+    }
+    y += secondRowHeight + 25;
 
-          .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-          }
+    // ===== ORDER ITEMS TABLE =====
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND_BLUE);
+    doc.text('ORDER ITEMS', margin, y);
+    y += 5;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 12;
 
-          .info-field {
-            padding: 10px 14px;
-            background: #f8fafc;
-            border-radius: 6px;
-            border-left: 3px solid #e2e8f0;
-          }
+    const items = data.items && data.items.length > 0
+      ? data.items
+      : [{ name: 'Custom Magnet Frame', price: Math.round(subtotal / (data.qty || 1)), quantity: data.qty || 1 }];
 
-          .info-field .label {
-            font-size: 10px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            margin-bottom: 3px;
-            font-weight: 500;
-          }
+    // Build table rows. Image column left blank in text; drawn separately via didDrawCell.
+    const tableBody = items.map((item) => {
+      const detailParts: string[] = [];
+      if (item.frameType) detailParts.push(item.frameType);
+      if (item.colorOption) detailParts.push(item.colorOption);
+      const itemTotal = (item.price || 0) * (item.quantity || 1);
+      return [
+        '', // image placeholder column
+        `${item.name || 'Custom Magnet Frame'}${detailParts.length ? `\n${detailParts.join(' | ')}` : ''}`,
+        String(item.quantity || 1),
+        `Rs ${(item.price || 0).toLocaleString()}`,
+        `Rs ${itemTotal.toLocaleString()}`,
+      ];
+    });
 
-          .info-field .value {
-            font-size: 13px;
-            color: #1e293b;
-            font-weight: 500;
-          }
-
-          .info-field.full-width {
-            grid-column: 1 / -1;
-          }
-
-          /* ===== ORDER TABLE ===== */
-          .order-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 16px 0;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid #e2e8f0;
-          }
-
-          .order-table thead tr {
-            background: #1e40af;
-          }
-
-          .order-table th {
-            color: #ffffff;
-            font-weight: 600;
-            padding: 12px 10px;
-            text-align: center;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-
-          .order-table th:first-child {
-            text-align: center;
-            width: 80px;
-          }
-
-          .order-table th:nth-child(2) {
-            text-align: left;
-          }
-
-          .item-row td {
-            padding: 12px 10px;
-            border-bottom: 1px solid #f1f5f9;
-            vertical-align: middle;
-          }
-
-          .item-row:last-child td {
-            border-bottom: none;
-          }
-
-          .item-image-cell {
-            text-align: center;
-            width: 80px;
-          }
-
-          .item-image {
-            width: 60px;
-            height: 60px;
-            object-fit: cover;
-            border-radius: 6px;
-            border: 1px solid #e2e8f0;
-          }
-
-          .item-image-placeholder {
-            width: 60px;
-            height: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #f1f5f9;
-            border-radius: 6px;
-            margin: 0 auto;
-          }
-
-          .item-desc {
-            text-align: left !important;
-          }
-
-          .item-name {
-            font-weight: 600;
-            color: #1e293b;
-            font-size: 13px;
-          }
-
-          .item-detail {
-            font-size: 11px;
-            color: #64748b;
-            margin-top: 3px;
-          }
-
-          .item-qty, .item-price, .item-total {
-            text-align: center;
-            font-size: 13px;
-            color: #334155;
-            font-weight: 500;
-          }
-
-          /* ===== TOTALS ===== */
-          .totals-section {
-            margin-top: 16px;
-            border-top: 2px solid #e2e8f0;
-            padding-top: 12px;
-          }
-
-          .totals-table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-
-          .totals-table td {
-            padding: 8px 10px;
-            font-size: 13px;
-          }
-
-          .totals-table .label-cell {
-            text-align: right;
-            color: #64748b;
-            font-weight: 500;
-          }
-
-          .totals-table .value-cell {
-            text-align: right;
-            width: 140px;
-            color: #334155;
-            font-weight: 500;
-          }
-
-          .totals-table .total-final .label-cell {
-            font-size: 15px;
-            font-weight: 700;
-            color: #1e293b;
-            padding-top: 12px;
-            border-top: 2px solid #1e40af;
-          }
-
-          .totals-table .total-final .value-cell {
-            font-size: 15px;
-            font-weight: 700;
-            color: #1e40af;
-            padding-top: 12px;
-            border-top: 2px solid #1e40af;
-          }
-
-          /* ===== NOTES ===== */
-          .admin-note {
-            margin-top: 20px;
-            padding: 14px 16px;
-            background: #fffbeb;
-            border-left: 4px solid #f59e0b;
-            border-radius: 4px;
-          }
-
-          .admin-note .label {
-            font-size: 11px;
-            color: #92400e;
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 4px;
-          }
-
-          .admin-note .value {
-            font-size: 13px;
-            color: #78350f;
-          }
-
-          /* ===== FOOTER ===== */
-          .footer {
-            margin-top: 36px;
-            padding-top: 20px;
-            border-top: 1px solid #e2e8f0;
-            text-align: center;
-          }
-
-          .footer .thank-you {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1e40af;
-            margin-bottom: 8px;
-          }
-
-          .footer .footer-text {
-            font-size: 11px;
-            color: #94a3b8;
-            line-height: 1.6;
-          }
-
-          /* ===== PRINT ===== */
-          @media print {
-            body {
-              padding: 0;
-              -webkit-print-color-adjust: exact !important;
-              color-adjust: exact !important;
-            }
-            .receipt-container {
-              border: none;
+    autoTable(doc, {
+      startY: y,
+      head: [['Image', 'Product', 'Qty', 'Price', 'Total']],
+      body: tableBody,
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9, cellPadding: 8, valign: 'middle' },
+      headStyles: { fillColor: BRAND_BLUE, textColor: 255, fontStyle: 'bold', halign: 'center' },
+      columnStyles: {
+        0: { cellWidth: 60, halign: 'center' },
+        1: { halign: 'left' },
+        2: { halign: 'center', cellWidth: 40 },
+        3: { halign: 'center', cellWidth: 70 },
+        4: { halign: 'center', cellWidth: 70 },
+      },
+      // Draw each item's image inside the image column cell
+      didDrawCell: (cellData) => {
+        if (cellData.column.index === 0 && cellData.row.section === 'body') {
+          const item = items[cellData.row.index];
+          if (item && (item as any).image) {
+            try {
+              const imgSize = 40;
+              const cx = cellData.cell.x + (cellData.cell.width - imgSize) / 2;
+              const cy = cellData.cell.y + (cellData.cell.height - imgSize) / 2;
+              doc.addImage((item as any).image, 'JPEG', cx, cy, imgSize, imgSize);
+            } catch (e) {
+              // if image fails (bad base64/format), silently skip - keeps PDF generation from crashing
+              console.error('Item image render failed:', e);
             }
           }
-        </style>
-      </head>
-      <body>
-        <div class="receipt-container">
+        }
+      },
+    });
 
-          <!-- Header -->
-          <div class="header">
-            <div class="logo-section">
-              <div class="logo">
-                <img src="${logoSrc}" alt="MAGNIFY" />
-              </div>
-            </div>
-            <div class="company-info">
-              <div class="company-name">MAGNIFY</div>
-              <div>magnifyofficials@gmail.com</div>
-              <div>+94 75 391 2534</div>
-              <div>125A, KKS Road, Kokuvil, Jaffna</div>
-              <div>Instagram: @magnify_magnets</div>
-            </div>
-          </div>
+    // Y position after table - CRITICAL for dynamic item count support
+    y = (doc as any).lastAutoTable.finalY + 20;
 
-          <!-- Receipt Title -->
-          <div class="receipt-title">
-            <h1>Order Receipt</h1>
-            <div class="order-number">Order #${data.orderId}</div>
-            <div class="order-date">${date}</div>
-          </div>
+    const pageHeight = doc.internal.pageSize.getHeight();
 
-          <!-- Status -->
-          <div class="status-section">
-            <span class="status-badge status-${statusClass}">${data.status}</span>
-          </div>
+    // Guard against content overflowing the page - if remaining space is too
+    // small for totals + note + footer, start a fresh page instead of letting
+    // content silently get cut off at the page edge.
+    const ensureSpace = (neededHeight: number) => {
+      if (y + neededHeight > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
 
-          <!-- Customer Information -->
-          <div class="section">
-            <h3 class="section-title">Customer Details</h3>
-            <div class="info-grid">
-              <div class="info-field">
-                <div class="label">Name</div>
-                <div class="value">${data.customerName}</div>
-              </div>
-              <div class="info-field">
-                <div class="label">Email</div>
-                <div class="value">${data.email}</div>
-              </div>
-              ${data.phone ? `
-              <div class="info-field">
-                <div class="label">Phone</div>
-                <div class="value">${data.phone}</div>
-              </div>
-              ` : ''}
-              ${data.shippingAddress ? `
-              <div class="info-field${!data.phone ? ' full-width' : ''}">
-                <div class="label">Delivery Address</div>
-                <div class="value">${data.shippingAddress}${data.district ? `, ${data.district}` : ''}</div>
-              </div>
-              ` : ''}
-            </div>
-          </div>
+    ensureSpace(90); // totals block
 
-          <!-- Order Items -->
-          <div class="section">
-            <h3 class="section-title">Order Items</h3>
-            <table class="order-table">
-              <thead>
-                <tr>
-                  <th>Image</th>
-                  <th>Product</th>
-                  <th>Qty</th>
-                  <th>Price</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${itemsHTML}
-              </tbody>
-            </table>
+    // ===== TOTALS =====
+    const totalsX = pageWidth - margin - 160;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Subtotal', totalsX, y);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Rs ${subtotal.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
+    y += 18;
 
-            <!-- Totals -->
-            <div class="totals-section">
-              <table class="totals-table">
-                <tr>
-                  <td class="label-cell">Subtotal</td>
-                  <td class="value-cell">Rs ${subtotal.toLocaleString()}</td>
-                </tr>
-                ${data.shippingAddress || deliveryFee > 0 ? `
-                <tr>
-                  <td class="label-cell">Delivery Fee</td>
-                  <td class="value-cell">Rs ${deliveryFee.toLocaleString()}</td>
-                </tr>
-                ` : ''}
-                <tr class="total-final">
-                  <td class="label-cell">Total Amount</td>
-                  <td class="value-cell">Rs ${data.totalValue.toLocaleString()}</td>
-                </tr>
-              </table>
-            </div>
+    if (data.shippingAddress || deliveryFee > 0) {
+      doc.setTextColor(100, 116, 139);
+      doc.text('Delivery Fee', totalsX, y);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Rs ${deliveryFee.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
+      y += 18;
+    }
 
-            ${data.adminNote ? `
-            <div class="admin-note">
-              <div class="label">Note</div>
-              <div class="value">${data.adminNote}</div>
-            </div>
-            ` : ''}
-          </div>
+    doc.setDrawColor(...BRAND_BLUE);
+    doc.setLineWidth(1.5);
+    doc.line(totalsX - 10, y, pageWidth - margin, y);
+    y += 16;
 
-          <!-- Footer -->
-          <div class="footer">
-            <div class="thank-you">Thank you for choosing MAGNIFY!</div>
-            <div class="footer-text">
-              Your custom fridge magnets are being prepared with care.<br/>
-              For any questions, contact us at magnifyofficials@gmail.com or call +94 75 391 2534.<br/>
-              125A, KKS Road, Kokuvil, Jaffna
-            </div>
-          </div>
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('Total Amount', totalsX, y);
+    doc.setTextColor(...BRAND_BLUE);
+    doc.text(`Rs ${data.totalValue.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
+    y += 30;
 
-        </div>
-      </body>
-      </html>
-    `;
+    // ===== ADMIN NOTE (variable length - wrap + recalculate y) =====
+    if (data.adminNote) {
+      doc.setFont('helvetica', 'normal');
+      const noteLines: string[] = doc.splitTextToSize(data.adminNote, pageWidth - margin * 2 - 24);
+      const noteBoxHeight = noteLines.length * 12 + 20;
+      ensureSpace(noteBoxHeight + 20);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(146, 64, 14);
+      doc.text('NOTE', margin + 12, y);
+      y += 12;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(120, 53, 15);
+
+      // background box drawn behind text - draw before text using a temp y capture
+      doc.setFillColor(255, 251, 235);
+      doc.setDrawColor(245, 158, 11);
+      doc.setLineWidth(3);
+      doc.rect(margin, y - 24, pageWidth - margin * 2, noteBoxHeight, 'F');
+      doc.line(margin, y - 24, margin, y - 24 + noteBoxHeight);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(146, 64, 14);
+      doc.text('NOTE', margin + 12, y - 12);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(120, 53, 15);
+      doc.text(noteLines, margin + 12, y);
+
+      y += noteLines.length * 12 + 20;
+    }
+
+    y += 20;
+    ensureSpace(70);
+
+    // ===== FOOTER =====
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 20;
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND_BLUE);
+    doc.text('Thank you for choosing MAGNIFY!', pageWidth / 2, y, { align: 'center' });
+    y += 16;
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184);
+    const footerLines = [
+      'Your custom fridge magnets are being prepared with care.',
+      'For any questions, contact us at magnifyofficials@gmail.com or call +94 75 391 2534.',
+      '125A, KKS Road, Kokuvil, Jaffna',
+    ];
+    footerLines.forEach((line, i) => {
+      doc.text(line, pageWidth / 2, y + i * 11, { align: 'center' });
+    });
+
+    // Return as Node Buffer (matches what orders.controller.ts expects)
+    return Buffer.from(doc.output('arraybuffer'));
   }
 }
