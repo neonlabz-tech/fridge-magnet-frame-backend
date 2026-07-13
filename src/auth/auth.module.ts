@@ -9,8 +9,6 @@ import { UsersModule } from '../users/users.module';
 import { PassportModule } from '@nestjs/passport';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { ValidationPipe } from '@nestjs/common';
-// BUG-009 FIX: Import the new MailService.
-import { MailService } from './mail.service';
 
 @Module({
   imports: [
@@ -30,9 +28,7 @@ import { MailService } from './mail.service';
     CloudinaryModule,
   ],
   controllers: [AuthController],
-  // BUG-009 FIX: MailService is added here so NestJS's DI container
-  // can resolve it when AuthService requests it via constructor injection.
-  providers: [AuthService, JwtStrategy, MailService],
+  providers: [AuthService, JwtStrategy],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
