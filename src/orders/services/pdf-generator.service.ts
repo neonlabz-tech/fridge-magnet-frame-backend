@@ -68,9 +68,9 @@ export class PdfGeneratorService {
 
     try {
       const possiblePaths = [
-        path.join(__dirname, '..', 'assets', 'logo.png'),
-        path.join(process.cwd(), 'src', 'orders', 'assets', 'logo.png'),
-        path.join(process.cwd(), 'dist', 'orders', 'assets', 'logo.png'),
+        path.join(__dirname, '..', 'assets', 'new_logo.png'),
+        path.join(process.cwd(), 'src', 'orders', 'assets', 'new_logo.png'),
+        path.join(process.cwd(), 'dist', 'orders', 'assets', 'new_logo.png'),
       ];
 
       for (const logoPath of possiblePaths) {
@@ -83,7 +83,7 @@ export class PdfGeneratorService {
       this.logoCache = null;
       return null;
     } catch (error) {
-      this.logger.error('Error loading logo.png:', error as Error);
+      this.logger.error('Error loading new_logo.png:', error as Error);
       this.logoCache = null;
       return null;
     }
@@ -109,7 +109,10 @@ export class PdfGeneratorService {
     let logoRendered = false;
     if (logoBase64) {
       try {
-        doc.addImage(logoBase64, 'PNG', margin, y, 90, 60);
+        // Make logo fill the header height properly
+        const logoWidth = 160;
+        const logoHeight = 100;
+        doc.addImage(logoBase64, 'PNG', margin, y - 15, logoWidth, logoHeight, undefined, 'FAST');
         logoRendered = true;
       } catch (e) {
         this.logger.error('Logo render failed:', e as Error);
@@ -142,7 +145,7 @@ export class PdfGeneratorService {
       doc.text(line, pageWidth - margin, y + 24 + i * 12, { align: 'right' });
     });
 
-    y += 75;
+    y += 120;
 
     // Header bottom border
     doc.setDrawColor(...BRAND_BLUE);
