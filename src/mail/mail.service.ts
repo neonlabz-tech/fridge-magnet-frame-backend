@@ -16,10 +16,17 @@ export class MailService implements OnModuleInit {
   private readonly resend: Resend;
   private fromAddress: string;
 
+  private readonly adminAddress: string;
+
   constructor(config: ConfigService) {
-    const apiKey = config.get<string>('RESEND_API_KEY');
-    this.fromAddress = config.get<string>('RESEND_FROM_EMAIL') || '';
-    this.resend = new Resend(apiKey || '');
+     const apiKey = (config.get<string>('RESEND_API_KEY') || '').trim();
+    this.fromAddress = (config.get<string>('RESEND_FROM_EMAIL') || '').trim();
+    this.adminAddress = (
+      config.get<string>('ADMIN_EMAIL') ||
+      config.get<string>('CONTACT_EMAIL') ||
+      ''
+    ).trim();
+    this.resend = new Resend(apiKey);
 
     if (!apiKey || !this.fromAddress) {
       this.logger.warn(
@@ -190,5 +197,168 @@ export class MailService implements OnModuleInit {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  // Sends an order summary to the admin inbox after a customer places an order.
+  // Non-throwing: order placement must succeed even if this notification fails.
+  async sendOrderPlacedAdminNotification(order: {
+    orderId: string;
+    customerName: string;
+    email: string;
+    phone?: string;
+    qty: number;
+    totalValue: number;
+    shippingAddress?: string;
+    district?: string;
+    items?: {
+      name?: string;
+      price?: number;
+      quantity?: number;
+      frameType?: string;
+      colorOption?: string;
+    }[];
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!this.adminAddress) {
+      this.logger.warn(
+        `[Mail] Order #${order.orderId} placed — admin notification skipped (ADMIN_EMAIL/CONTACT_EMAIL not set)`,
+      );
+      return { success: false, error: 'Admin email not configured' };
+    }
+    if (!this.fromAddress) {
+      this.logger.warn(
+        `[Mail] Order #${order.orderId} placed — admin notification skipped (from address not ready)`,
+      );
+      return { success: false, error: 'Resend from address not ready' };
+    }
+
+    const money = (n: number) =>
+      `LKR ${Number(n || 0).toLocaleString('en-LK', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+
+    const safeName = escapeHtml(order.customerName);
+    const safeOrderId = escapeHtml(order.orderId);
+    const safeEmail = escapeHtml(order.email);
+    const safePhone = order.phone ? escapeHtml(order.phone) : '—';
+    const safeAddress = order.shippingAddress
+      ? escapeHtml(order.shippingAddress)
+      : '—';
+    const safeDistrict = order.district ? escapeHtml(order.district) : '—';
+
+    const items = order.items ?? [];
+    const itemRowsHtml = items.length
+      ? items
+          .map((it) => {
+            const name = escapeHtml(it.name || 'Item');
+            const variant = [it.frameType, it.colorOption]
+              .filter(Boolean)
+              .map((v) => escapeHtml(String(v)))
+              .join(' / ');
+            const qty = Number(it.quantity || 0);
+            const price = Number(it.price || 0);
+            return `<tr>
+                <td style="padding:6px 12px;color:#434652;border-bottom:1px solid #EEF1F5">${name}${
+                  variant ? ` <span style="color:#9CA3AF">(${variant})</span>` : ''
+                }</td>
+                <td style="padding:6px 12px;color:#434652;border-bottom:1px solid #EEF1F5;text-align:center">${qty}</td>
+                <td style="padding:6px 12px;color:#434652;border-bottom:1px solid #EEF1F5;text-align:right">${money(price)}</td>
+                <td style="padding:6px 12px;color:#434652;border-bottom:1px solid #EEF1F5;text-align:right">${money(price * qty)}</td>
+              </tr>`;
+          })
+          .join('')
+      : `<tr><td colspan="4" style="padding:6px 12px;color:#9CA3AF">No item details provided</td></tr>`;
+
+    const itemsText = items.length
+      ? items
+          .map((it) => {
+            const variant = [it.frameType, it.colorOption]
+              .filter(Boolean)
+              .join(' / ');
+            const qty = Number(it.quantity || 0);
+            const price = Number(it.price || 0);
+            return `  - ${it.name || 'Item'}${variant ? ` (${variant})` : ''} x${qty} @ ${money(
+              price,
+            )} = ${money(price * qty)}`;
+          })
+          .join('\n')
+      : '  (No item details provided)';
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px">
+        <h2 style="color:#002B73;margin-bottom:8px">New Order Placed — #${safeOrderId}</h2>
+        <p style="color:#434652">A new order has been placed on Magnify.</p>
+        <table style="border-collapse:collapse;width:100%;margin:16px 0">
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Order ID</td><td style="padding:6px 12px;color:#434652">#${safeOrderId}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Customer</td><td style="padding:6px 12px;color:#434652">${safeName}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Email</td><td style="padding:6px 12px;color:#434652">${safeEmail}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Phone</td><td style="padding:6px 12px;color:#434652">${safePhone}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Shipping Address</td><td style="padding:6px 12px;color:#434652">${safeAddress}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">District</td><td style="padding:6px 12px;color:#434652">${safeDistrict}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Total Items</td><td style="padding:6px 12px;color:#434652">${Number(order.qty || 0)}</td></tr>
+        </table>
+        <h3 style="color:#002B73;margin-bottom:4px">Items</h3>
+        <table style="border-collapse:collapse;width:100%;margin-bottom:16px">
+          <thead>
+            <tr>
+              <th style="padding:6px 12px;text-align:left;color:#002B73;border-bottom:2px solid #002B73">Product</th>
+              <th style="padding:6px 12px;text-align:center;color:#002B73;border-bottom:2px solid #002B73">Qty</th>
+              <th style="padding:6px 12px;text-align:right;color:#002B73;border-bottom:2px solid #002B73">Price</th>
+              <th style="padding:6px 12px;text-align:right;color:#002B73;border-bottom:2px solid #002B73">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>${itemRowsHtml}</tbody>
+        </table>
+        <p style="font-size:20px;font-weight:bold;color:#BC0000;text-align:right;margin:0">
+          Order Total: ${money(order.totalValue)}
+        </p>
+      </div>
+    `;
+
+    const text =
+      `New order placed on Magnify.\n\n` +
+      `Order ID: #${order.orderId}\n` +
+      `Customer: ${order.customerName}\n` +
+      `Email: ${order.email}\n` +
+      `Phone: ${order.phone || '—'}\n` +
+      `Shipping Address: ${order.shippingAddress || '—'}\n` +
+      `District: ${order.district || '—'}\n` +
+      `Total Items: ${Number(order.qty || 0)}\n\n` +
+      `Items:\n${itemsText}\n\n` +
+      `Order Total: ${money(order.totalValue)}`;
+
+    const label = `admin order #${order.orderId} → ${this.adminAddress}`;
+    try {
+      const messageId = await this.sendWithResend({
+        from: `Magnify Orders <${this.stripName(this.fromAddress)}>`,
+        to: this.adminAddress,
+        subject: `New Order #${order.orderId} — ${order.customerName}`,
+        html,
+        text,
+        replyTo: order.email,
+        headers: {
+          'X-Mailer': 'Magnify',
+        },
+      });
+      this.logger.log(
+        `[Mail] SENT ${label}\n` +
+          `  to          : ${this.adminAddress}\n` +
+          `  messageId   : ${messageId || 'n/a'}`,
+      );
+      return { success: true };
+    } catch (err) {
+      this.logSendError(err, label);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  // Accepts either "email@x.com" or "Name <email@x.com>" and returns the raw
+  // address portion, so we can safely re-wrap it with a display name.
+  private stripName(address: string): string {
+    const match = address.match(/<([^>]+)>/);
+    return (match ? match[1] : address).trim();
   }
 }
