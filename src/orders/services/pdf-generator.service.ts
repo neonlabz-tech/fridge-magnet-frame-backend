@@ -105,47 +105,61 @@ export class PdfGeneratorService {
     const subtotal = data.subtotal ?? data.totalValue - deliveryFee;
 
     // ===== HEADER: Logo (left) + Company info (right) =====
+    // The header spans a fixed band so both the logo and the company info can
+    // use the full vertical space instead of hugging the top.
+    const headerTop = y;
+    const headerHeight = 120;
+    const headerCenterY = headerTop + headerHeight / 2;
+
     const logoBase64 = this.getLogoBase64();
     let logoRendered = false;
     if (logoBase64) {
       try {
-        // Make logo fill the header height properly
-        const logoWidth = 160;
-        const logoHeight = 100;
-        doc.addImage(logoBase64, 'PNG', margin, y - 15, logoWidth, logoHeight, undefined, 'FAST');
+        // Source logo is a 500x500 square. Keep it square so it isn't
+        // stretched/squished, and let it fill the header band vertically.
+        const logoSize = headerHeight; // fill the full header height
+        const logoY = headerTop; // top-aligned so it occupies the whole band
+        doc.addImage(logoBase64, 'PNG', margin, logoY, logoSize, logoSize, undefined, 'FAST');
         logoRendered = true;
       } catch (e) {
         this.logger.error('Logo render failed:', e as Error);
       }
     }
 
-
     if (!logoRendered) {
-      doc.setFontSize(24);
+      doc.setFontSize(34);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...BRAND_BLUE);
-      doc.text('MAGNIFY', margin, y + 38);
+      doc.text('MAGNIFY', margin, headerCenterY + 8);
     }
 
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text('MAGNIFY', pageWidth - margin, y + 10, { align: 'right' });
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105); // slate-600
+    // Company info block, vertically centered within the header band and right
+    // aligned so it balances the large logo on the left.
     const companyLines = [
       'magnifyofficials@gmail.com',
       '+94 75 391 2534',
       '125A, KKS Road, Kokuvil, Jaffna',
       'Instagram: @magnify_magnets',
     ];
+    const titleGap = 20; // space between the MAGNIFY title and the first info line
+    const infoLineHeight = 13;
+    const infoBlockHeight = titleGap + companyLines.length * infoLineHeight;
+    let infoY = headerCenterY - infoBlockHeight / 2 + 4;
+
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND_BLUE);
+    doc.text('MAGNIFY', pageWidth - margin, infoY, { align: 'right' });
+    infoY += titleGap;
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105); // slate-600
     companyLines.forEach((line, i) => {
-      doc.text(line, pageWidth - margin, y + 24 + i * 12, { align: 'right' });
+      doc.text(line, pageWidth - margin, infoY + i * infoLineHeight, { align: 'right' });
     });
 
-    y += 120;
+    y = headerTop + headerHeight;
 
     // Header bottom border
     doc.setDrawColor(...BRAND_BLUE);
