@@ -82,15 +82,6 @@ export class CloudinaryService {
       }
 
       const result = await cloudinary.uploader.destroy(publicId);
-
-      // BUG fix: Cloudinary's destroy() doesn't throw for most failures — it
-      // returns { result: 'ok' | 'not found' | ... }. Treating anything other
-      // than 'ok' as an error meant a legitimately-already-deleted image
-      // (result.result === 'not found', e.g. from an earlier failed attempt
-      // before a routing bug was fixed) would permanently block re-deletion,
-      // since it would never actually succeed from the caller's point of view.
-      // 'not found' is treated as success here since the end goal — the image
-      // no longer existing on Cloudinary — is already true.
       if (result.result === 'ok' || result.result === 'not found') {
         return {
           success: true,
@@ -99,8 +90,7 @@ export class CloudinaryService {
         };
       }
 
-      // BUG fix: include the actual Cloudinary result value in the error so
-      // future failures are debuggable instead of a generic dead-end message.
+      
       throw new BadRequestException(
         `Failed to delete image from Cloudinary (result: ${result.result})`,
       );
