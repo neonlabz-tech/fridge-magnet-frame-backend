@@ -73,6 +73,34 @@ export class OrdersService {
       phone: dto.phone,
       shippingAddress: dto.shippingAddress,
     });
+
+    // Notify the admin about the new order. This must never block or fail order
+    // placement, so failures are logged and swallowed.
+    try {
+      const result = await this.mailService.sendOrderPlacedAdminNotification({
+        orderId: order.orderId,
+        customerName: order.customerName,
+        email: order.email,
+        phone: order.phone,
+        qty: order.qty,
+        totalValue: order.totalValue,
+        shippingAddress: order.shippingAddress,
+        district: order.district,
+        items: order.items,
+      });
+      if (!result.success) {
+        this.logger.warn(
+          `[Orders] Admin notification not sent for order ${order.orderId}: ${result.error}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `[Orders] Admin notification threw for order ${order.orderId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     return order;
   }
 
@@ -170,25 +198,30 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
 
     const orderObj = order.toObject();
-    
-    // Calculate items subtotal from actual item data
+
+    const getLineTotal = (price: number, quantity: number, name?: string): number => {
+      const normalized = String(name ?? '').trim().toLowerCase();
+      const isFourMagnetsPack =
+        normalized === '4 magnets' || normalized.startsWith('4 magnets ');
+      const packSize = isFourMagnetsPack ? 4 : 1;
+      return price * (quantity / packSize);
+    };
+
     let itemsSubtotal = 0;
-    
+
     if (orderObj.items && orderObj.items.length > 0) {
-      // Sum up each item's price × quantity from the stored order items
       itemsSubtotal = orderObj.items.reduce((sum, item) => {
         const itemPrice = Number(item.price || 0);
         const itemQuantity = Number(item.quantity || 1);
-        return sum + (itemPrice * itemQuantity);
+        return sum + getLineTotal(itemPrice, itemQuantity, item.name);
       }, 0);
     }
-    
-    
+
+    // The frontend always uses a fixed Rs 200 shipping fee.
+    const SHIPPING_FEE = 200;
     const subtotal = Math.max(0, itemsSubtotal);
-    const deliveryFee = subtotal > 0
-      ? Math.max(0, orderObj.totalValue - subtotal)
-      : 0;  
-    const finalTotal = orderObj.totalValue;
+    const deliveryFee = orderObj.shippingAddress ? SHIPPING_FEE : 0;
+    const finalTotal = subtotal + deliveryFee;
     
     // Prepare receipt data
     const receiptData: ReceiptPdfData = {
