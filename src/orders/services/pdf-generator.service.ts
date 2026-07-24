@@ -68,9 +68,9 @@ export class PdfGeneratorService {
 
     try {
       const possiblePaths = [
-        path.join(__dirname, '..', 'assets', 'logo.png'),
-        path.join(process.cwd(), 'src', 'orders', 'assets', 'logo.png'),
-        path.join(process.cwd(), 'dist', 'orders', 'assets', 'logo.png'),
+        path.join(__dirname, '..', 'assets', 'new_logo.png'),
+        path.join(process.cwd(), 'src', 'orders', 'assets', 'new_logo.png'),
+        path.join(process.cwd(), 'dist', 'orders', 'assets', 'new_logo.png'),
       ];
 
       for (const logoPath of possiblePaths) {
@@ -83,7 +83,7 @@ export class PdfGeneratorService {
       this.logoCache = null;
       return null;
     } catch (error) {
-      this.logger.error('Error loading logo.png:', error as Error);
+      this.logger.error('Error loading new_logo.png:', error as Error);
       this.logoCache = null;
       return null;
     }
@@ -105,50 +105,56 @@ export class PdfGeneratorService {
     const subtotal = data.subtotal ?? data.totalValue - deliveryFee;
 
     // ===== HEADER: Logo (left) + Company info (right) =====
+    // The header spans a fixed band so both the logo and the company info can
+    // use the full vertical space instead of hugging the top.
+    const headerTop = y;
+    const headerHeight = 120;
+    const headerCenterY = headerTop + headerHeight / 2;
+
     const logoBase64 = this.getLogoBase64();
     let logoRendered = false;
     if (logoBase64) {
       try {
-        doc.addImage(logoBase64, 'PNG', margin, y, 90, 60);
+        // Source logo is a 500x500 square. Keep it square so it isn't
+        // stretched/squished, and let it fill the header band vertically.
+        const logoSize = headerHeight; // fill the full header height
+        const logoY = headerTop; // top-aligned so it occupies the whole band
+        doc.addImage(logoBase64, 'PNG', margin, logoY, logoSize, logoSize, undefined, 'FAST');
         logoRendered = true;
       } catch (e) {
         this.logger.error('Logo render failed:', e as Error);
       }
     }
 
-
     if (!logoRendered) {
-      doc.setFontSize(24);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...BRAND_BLUE);
-      doc.text('MAGNIFY', margin, y + 38);
+      // Fallback: just show company info without a logo placeholder
     }
 
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text('MAGNIFY', pageWidth - margin, y + 10, { align: 'right' });
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105); // slate-600
+    // Company info block, vertically centered within the header band and right-aligned.
     const companyLines = [
       'magnifyofficials@gmail.com',
       '+94 75 391 2534',
       '125A, KKS Road, Kokuvil, Jaffna',
       'Instagram: @magnify_magnets',
     ];
+    const infoLineHeight = 15;
+    const infoBlockHeight = companyLines.length * infoLineHeight;
+    let infoY = headerCenterY - infoBlockHeight / 2 + 4;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105); // slate-600
     companyLines.forEach((line, i) => {
-      doc.text(line, pageWidth - margin, y + 24 + i * 12, { align: 'right' });
+      doc.text(line, pageWidth - margin, infoY + i * infoLineHeight, { align: 'right' });
     });
 
-    y += 75;
+    y = headerTop + headerHeight;
 
     // Header bottom border
     doc.setDrawColor(...BRAND_BLUE);
     doc.setLineWidth(2);
     doc.line(margin, y, pageWidth - margin, y);
-    y += 30;
+    y += 18;
 
     // ===== RECEIPT TITLE =====
     doc.setFontSize(18);
@@ -259,14 +265,23 @@ export class PdfGeneratorService {
     const items =
       data.items && data.items.length > 0
         ? data.items
-        : [{ name: 'Custom Magnet Frame', price: Math.round(subtotal / (data.qty || 1)), quantity: data.qty || 1 }];
+        : [{ name: 'Custom Magnet Frame', price: subtotal, quantity: 1 }];
+
+
+    const getLineTotal = (price: number, quantity: number, name?: string): number => {
+      const normalized = String(name ?? '').trim().toLowerCase();
+      const isFourMagnetsPack =
+        normalized === '4 magnets' || normalized.startsWith('4 magnets ');
+      const packSize = isFourMagnetsPack ? 4 : 1;
+      return price * (quantity / packSize);
+    };
 
     // Build table rows. Image column left blank in text; drawn separately via didDrawCell.
     const tableBody = items.map((item) => {
       const detailParts: string[] = [];
       if (item.frameType) detailParts.push(item.frameType);
       if (item.colorOption) detailParts.push(item.colorOption);
-      const itemTotal = (item.price || 0) * (item.quantity || 1);
+      const itemTotal = getLineTotal(item.price || 0, item.quantity || 1, item.name);
       const productCell = `${item.name || 'Custom Magnet Frame'}${
         detailParts.length ? `\n${detailParts.join(' | ')}` : ''
       }`;
@@ -308,7 +323,7 @@ export class PdfGeneratorService {
 
     if (data.shippingAddress || deliveryFee > 0) {
       doc.setTextColor(100, 116, 139);
-      doc.text('Delivery Fee', totalsX, y);
+      doc.text('Shipping', totalsX, y);
       doc.setTextColor(51, 65, 85);
       doc.text(`Rs ${deliveryFee.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
       y += 18;
