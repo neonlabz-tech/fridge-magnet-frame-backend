@@ -9,7 +9,11 @@ import { Model } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+<<<<<<< HEAD
 import { CloudinaryService } from '../cloudinary/cloudflare.service';
+=======
+import { CloudinaryService } from '../cloudflareR2/cloudflareR2.service';
+>>>>>>> main
 
 @Injectable()
 export class ProductsService {
