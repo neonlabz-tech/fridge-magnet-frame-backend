@@ -127,32 +127,21 @@ export class PdfGeneratorService {
     }
 
     if (!logoRendered) {
-      doc.setFontSize(34);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...BRAND_BLUE);
-      doc.text('MAGNIFY', margin, headerCenterY + 8);
+      // Fallback: just show company info without a logo placeholder
     }
 
-    // Company info block, vertically centered within the header band and right
-    // aligned so it balances the large logo on the left.
+    // Company info block, vertically centered within the header band and right-aligned.
     const companyLines = [
       'magnifyofficials@gmail.com',
       '+94 75 391 2534',
       '125A, KKS Road, Kokuvil, Jaffna',
       'Instagram: @magnify_magnets',
     ];
-    const titleGap = 20; // space between the MAGNIFY title and the first info line
-    const infoLineHeight = 13;
-    const infoBlockHeight = titleGap + companyLines.length * infoLineHeight;
+    const infoLineHeight = 15;
+    const infoBlockHeight = companyLines.length * infoLineHeight;
     let infoY = headerCenterY - infoBlockHeight / 2 + 4;
 
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text('MAGNIFY', pageWidth - margin, infoY, { align: 'right' });
-    infoY += titleGap;
-
-    doc.setFontSize(9);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // slate-600
     companyLines.forEach((line, i) => {
@@ -165,7 +154,7 @@ export class PdfGeneratorService {
     doc.setDrawColor(...BRAND_BLUE);
     doc.setLineWidth(2);
     doc.line(margin, y, pageWidth - margin, y);
-    y += 30;
+    y += 18;
 
     // ===== RECEIPT TITLE =====
     doc.setFontSize(18);
@@ -276,14 +265,23 @@ export class PdfGeneratorService {
     const items =
       data.items && data.items.length > 0
         ? data.items
-        : [{ name: 'Custom Magnet Frame', price: Math.round(subtotal / (data.qty || 1)), quantity: data.qty || 1 }];
+        : [{ name: 'Custom Magnet Frame', price: subtotal, quantity: 1 }];
+
+
+    const getLineTotal = (price: number, quantity: number, name?: string): number => {
+      const normalized = String(name ?? '').trim().toLowerCase();
+      const isFourMagnetsPack =
+        normalized === '4 magnets' || normalized.startsWith('4 magnets ');
+      const packSize = isFourMagnetsPack ? 4 : 1;
+      return price * (quantity / packSize);
+    };
 
     // Build table rows. Image column left blank in text; drawn separately via didDrawCell.
     const tableBody = items.map((item) => {
       const detailParts: string[] = [];
       if (item.frameType) detailParts.push(item.frameType);
       if (item.colorOption) detailParts.push(item.colorOption);
-      const itemTotal = (item.price || 0) * (item.quantity || 1);
+      const itemTotal = getLineTotal(item.price || 0, item.quantity || 1, item.name);
       const productCell = `${item.name || 'Custom Magnet Frame'}${
         detailParts.length ? `\n${detailParts.join(' | ')}` : ''
       }`;
@@ -325,7 +323,7 @@ export class PdfGeneratorService {
 
     if (data.shippingAddress || deliveryFee > 0) {
       doc.setTextColor(100, 116, 139);
-      doc.text('Delivery Fee', totalsX, y);
+      doc.text('Shipping', totalsX, y);
       doc.setTextColor(51, 65, 85);
       doc.text(`Rs ${deliveryFee.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
       y += 18;

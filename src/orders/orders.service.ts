@@ -198,25 +198,30 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
 
     const orderObj = order.toObject();
-    
-    // Calculate items subtotal from actual item data
+
+    const getLineTotal = (price: number, quantity: number, name?: string): number => {
+      const normalized = String(name ?? '').trim().toLowerCase();
+      const isFourMagnetsPack =
+        normalized === '4 magnets' || normalized.startsWith('4 magnets ');
+      const packSize = isFourMagnetsPack ? 4 : 1;
+      return price * (quantity / packSize);
+    };
+
     let itemsSubtotal = 0;
-    
+
     if (orderObj.items && orderObj.items.length > 0) {
-      // Sum up each item's price × quantity from the stored order items
       itemsSubtotal = orderObj.items.reduce((sum, item) => {
         const itemPrice = Number(item.price || 0);
         const itemQuantity = Number(item.quantity || 1);
-        return sum + (itemPrice * itemQuantity);
+        return sum + getLineTotal(itemPrice, itemQuantity, item.name);
       }, 0);
     }
-    
-    
+
+    // The frontend always uses a fixed Rs 200 shipping fee.
+    const SHIPPING_FEE = 200;
     const subtotal = Math.max(0, itemsSubtotal);
-    const deliveryFee = subtotal > 0
-      ? Math.max(0, orderObj.totalValue - subtotal)
-      : 0;  
-    const finalTotal = orderObj.totalValue;
+    const deliveryFee = orderObj.shippingAddress ? SHIPPING_FEE : 0;
+    const finalTotal = subtotal + deliveryFee;
     
     // Prepare receipt data
     const receiptData: ReceiptPdfData = {
