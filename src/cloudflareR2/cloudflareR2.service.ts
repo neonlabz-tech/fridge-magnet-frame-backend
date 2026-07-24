@@ -1,115 +1,127 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { v2 as cloudinary } from 'cloudinary';
+import { randomUUID } from 'crypto';
+import { extname } from 'path';
+import {
+  DeleteObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
-type CloudinaryImage = {
+type StoredImage = {
   secure_url: string;
   public_id: string;
 };
 
 @Injectable()
 export class CloudflareR2Service {
+  private readonly client: S3Client;
+  private readonly bucket: string;
+  private readonly publicUrl: string;
+
   constructor() {
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const endpoint =
+      process.env.R2_ENDPOINT ||
+      (accountId
+        ? `https://${accountId}.r2.cloudflarestorage.com`
+        : undefined);
+    const bucket = process.env.R2_BUCKET_NAME;
+    const publicUrl = process.env.R2_PUBLIC_URL;
+
+    if (
+      !endpoint ||
+      !accessKeyId ||
+      !secretAccessKey ||
+      !bucket ||
+      !publicUrl
+    ) {
+      throw new Error(
+        'Cloudflare R2 configuration is incomplete. Check R2_ACCOUNT_ID/R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME and R2_PUBLIC_URL.',
+      );
+    }
+
+    this.bucket = bucket;
+    this.publicUrl = publicUrl.replace(/\/+$/, '');
+    this.client = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: { accessKeyId, secretAccessKey },
     });
   }
 
   async uploadImage(
     file: Express.Multer.File,
     folder: string = 'products',
-  ): Promise<CloudinaryImage> {
+  ): Promise<StoredImage> {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const safeFolder = folder.replace(/^\/+|\/+$/g, '');
+    const extension = extname(file.originalname || '').toLowerCase();
+    const key = `${safeFolder}/${randomUUID()}${extension}`;
+
     try {
-      if (!file) {
-        throw new BadRequestException('No file provided');
-      }
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: file.buffer,
+          ContentType: file.mimetype || 'application/octet-stream',
+        }),
+      );
 
-      return await new Promise<CloudinaryImage>((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder,
-            resource_type: 'auto',
-          },
-          (error, result) => {
-            if (error) {
-              return reject(
-                new BadRequestException(`Upload failed: ${error.message}`),
-              );
-            }
-
-            if (!result) {
-              return reject(new BadRequestException('Cloudinary upload failed'));
-            }
-
-            return resolve({
-              secure_url: result.secure_url,
-              public_id: result.public_id,
-            });
-          },
-        );
-
-        uploadStream.end(file.buffer);
-      });
-    } catch (error: any) {
-      throw new BadRequestException(`Cloudinary upload error: ${error.message}`);
+      return {
+        secure_url: `${this.publicUrl}/${key
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/')}`,
+        public_id: key,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      throw new BadRequestException(`Cloudflare R2 upload error: ${message}`);
     }
   }
 
   async uploadMultipleImages(
     files: Express.Multer.File[],
     folder: string = 'products',
-  ): Promise<CloudinaryImage[]> {
-    try {
-      if (!files || files.length === 0) {
-        throw new BadRequestException('No files provided');
-      }
-
-      const uploadPromises = files.map((file) => this.uploadImage(file, folder));
-
-      return await Promise.all(uploadPromises);
-    } catch (error: any) {
-      throw new BadRequestException(
-        `Multiple image upload failed: ${error.message}`,
-      );
+  ): Promise<StoredImage[]> {
+    if (!files?.length) {
+      throw new BadRequestException('No files provided');
     }
+
+    return Promise.all(files.map((file) => this.uploadImage(file, folder)));
   }
 
   async deleteImage(publicId: string) {
+    if (!publicId) {
+      throw new BadRequestException('Object key is required');
+    }
+
     try {
-      if (!publicId) {
-        throw new BadRequestException('Public ID is required');
-      }
-
-      const result = await cloudinary.uploader.destroy(publicId);
-
-      if (result.result === 'ok') {
-        return { success: true, message: 'Image deleted successfully' };
-      }
-
-      throw new BadRequestException('Failed to delete image from Cloudinary');
-    } catch (error: any) {
-      throw new BadRequestException(
-        `Cloudinary delete error: ${error.message}`,
+      await this.client.send(
+        new DeleteObjectCommand({
+          Bucket: this.bucket,
+          Key: publicId,
+        }),
       );
+
+      return { success: true, message: 'Image deleted successfully' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      throw new BadRequestException(`Cloudflare R2 delete error: ${message}`);
     }
   }
 
   async deleteMultipleImages(publicIds: string[]) {
-    try {
-      if (!publicIds || publicIds.length === 0) {
-        throw new BadRequestException('No public IDs provided');
-      }
-
-      const deletePromises = publicIds.map((publicId) =>
-        this.deleteImage(publicId),
-      );
-
-      return await Promise.all(deletePromises);
-    } catch (error: any) {
-      throw new BadRequestException(
-        `Multiple image deletion failed: ${error.message}`,
-      );
+    if (!publicIds?.length) {
+      throw new BadRequestException('No object keys provided');
     }
+
+    return Promise.all(publicIds.map((publicId) => this.deleteImage(publicId)));
   }
 }
