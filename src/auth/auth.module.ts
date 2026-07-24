@@ -7,11 +7,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { PassportModule } from '@nestjs/passport';
-<<<<<<< HEAD
-import { CloudinaryModule } from '../cloudinary/cloudflare.module';
-=======
-import { CloudinaryModule } from '../cloudflareR2/cloudflareR2.module';
->>>>>>> main
+import { CloudflareR2Module } from '../cloudflareR2/cloudflareR2.module';
 import { ValidationPipe } from '@nestjs/common';
 
 @Module({
@@ -29,7 +25,7 @@ import { ValidationPipe } from '@nestjs/common';
       }),
     }),
     UsersModule,
-    CloudinaryModule,
+    CloudflareR2Module,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

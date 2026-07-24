@@ -16,11 +16,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as crypto from 'crypto';
 import { MailService } from '../mail/mail.service';
-<<<<<<< HEAD
-import { CloudinaryService } from '../cloudinary/cloudflare.service';
-=======
-import { CloudinaryService } from '../cloudflareR2/cloudflareR2.service';
->>>>>>> main
+import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 
 @Injectable()
 export class AuthService {
@@ -31,7 +27,7 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private configService: ConfigService,
-    private cloudinaryService: CloudinaryService,
+    private cloudflareR2Service: CloudflareR2Service,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -296,7 +292,7 @@ export class AuthService {
       profileUpdate.avatar = dto.avatar;
       if (!dto.avatar && user.avatarPublicId) {
         try {
-          await this.cloudinaryService.deleteImage(user.avatarPublicId);
+          await this.cloudflareR2Service.deleteImage(user.avatarPublicId);
         } catch {
           // Ignore cleanup failures; the reference is still cleared below.
         }
@@ -328,13 +324,13 @@ export class AuthService {
     // Remove the previous avatar from Cloudinary before uploading the new one.
     if (user.avatarPublicId) {
       try {
-        await this.cloudinaryService.deleteImage(user.avatarPublicId);
+        await this.cloudflareR2Service.deleteImage(user.avatarPublicId);
       } catch {
         // Ignore cleanup failures and continue with the new upload.
       }
     }
 
-    const uploaded = await this.cloudinaryService.uploadImage(file, 'avatars');
+    const uploaded = await this.cloudflareR2Service.uploadImage(file, 'avatars');
 
     const updated = await this.usersService.updateAvatar(
       userId,

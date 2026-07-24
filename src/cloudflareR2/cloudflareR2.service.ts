@@ -7,7 +7,7 @@ type CloudinaryImage = {
 };
 
 @Injectable()
-export class CloudinaryService {
+export class CloudflareR2Service {
   constructor() {
     cloudinary.config({
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME,

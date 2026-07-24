@@ -9,11 +9,8 @@ import { Model } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-<<<<<<< HEAD
-import { CloudinaryService } from '../cloudinary/cloudflare.service';
-=======
-import { CloudinaryService } from '../cloudflareR2/cloudflareR2.service';
->>>>>>> main
+
+import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 
 @Injectable()
 export class ProductsService {
@@ -23,7 +20,7 @@ export class ProductsService {
 
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-    private cloudinaryService: CloudinaryService,
+    private cloudflareR2Service: CloudflareR2Service,
   ) {}
 
   private getStockStatus(
@@ -134,7 +131,7 @@ export class ProductsService {
       productData.status = this.getStockStatus(productData.stock);
 
       if (primaryImageFile) {
-        productData.primaryImage = await this.cloudinaryService.uploadImage(
+        productData.primaryImage = await this.cloudflareR2Service.uploadImage(
           primaryImageFile,
           'products/primary',
         );
@@ -142,7 +139,7 @@ export class ProductsService {
 
       if (galleryImageFiles && galleryImageFiles.length > 0) {
         productData.galleryImages =
-          await this.cloudinaryService.uploadMultipleImages(
+          await this.cloudflareR2Service.uploadMultipleImages(
             galleryImageFiles,
             'products/gallery',
           );
@@ -170,7 +167,7 @@ export class ProductsService {
                 return { ...baseOption, image: null };
               }
 
-              const uploaded = await this.cloudinaryService.uploadImage(
+              const uploaded = await this.cloudflareR2Service.uploadImage(
                 file,
                 'products/personalization',
               );
@@ -371,10 +368,10 @@ export class ProductsService {
 
       if (primaryImageFile) {
         if (product.primaryImage?.public_id) {
-          await this.cloudinaryService.deleteImage(product.primaryImage.public_id);
+          await this.cloudflareR2Service.deleteImage(product.primaryImage.public_id);
         }
 
-        updateData.primaryImage = await this.cloudinaryService.uploadImage(
+        updateData.primaryImage = await this.cloudflareR2Service.uploadImage(
           primaryImageFile,
           'products/primary',
         );
@@ -383,11 +380,11 @@ export class ProductsService {
       if (galleryImageFiles && galleryImageFiles.length > 0) {
         if (product.galleryImages && product.galleryImages.length > 0) {
           const publicIds = product.galleryImages.map((img) => img.public_id);
-          await this.cloudinaryService.deleteMultipleImages(publicIds);
+          await this.cloudflareR2Service.deleteMultipleImages(publicIds);
         }
 
         updateData.galleryImages =
-          await this.cloudinaryService.uploadMultipleImages(
+          await this.cloudflareR2Service.uploadMultipleImages(
             galleryImageFiles,
             'products/gallery',
           );
@@ -481,7 +478,7 @@ export class ProductsService {
 
       if (imagePublicIds.length > 0) {
         try {
-          await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
+          await this.cloudflareR2Service.deleteMultipleImages(imagePublicIds);
         } catch (error) {
           this.logger.warn(
             `Product ${id} deleted from database, but image cleanup failed: ${
@@ -536,7 +533,7 @@ export class ProductsService {
         throw new NotFoundException(`Product with ID ${productId} not found`);
       }
 
-      await this.cloudinaryService.deleteImage(publicId);
+      await this.cloudflareR2Service.deleteImage(publicId);
 
       if (product.primaryImage?.public_id === publicId) {
         product.primaryImage = null;
