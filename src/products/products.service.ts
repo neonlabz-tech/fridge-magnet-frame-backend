@@ -35,7 +35,6 @@ export class ProductsService {
     return 'Out of Stock';
   }
 
-  // Converts a raw personalization array (could be legacy strings or new objects) into a consistent shape
   private normalizePersonalization(
     raw: any[] | undefined | null,
   ): Array<{ label: string; image: { secure_url: string; public_id: string } | null }> {
@@ -161,7 +160,6 @@ export class ProductsService {
           );
       }
 
-      // Build personalization array with uploaded images
       if (personalizationInputs && personalizationInputs.length > 0) {
         productData.personalization = await Promise.all(
           personalizationInputs.map(async (item) => {
@@ -376,19 +374,17 @@ export class ProductsService {
       }
 
       if (galleryImageFiles && galleryImageFiles.length > 0) {
-        if (product.galleryImages && product.galleryImages.length > 0) {
-          const publicIds = product.galleryImages.map((img) => img.public_id);
-          await this.cloudinaryService.deleteMultipleImages(publicIds);
-        }
+        const uploadedNewImages = await this.cloudinaryService.uploadMultipleImages(
+          galleryImageFiles,
+          'products/gallery',
+        );
 
-        updateData.galleryImages =
-          await this.cloudinaryService.uploadMultipleImages(
-            galleryImageFiles,
-            'products/gallery',
-          );
+        updateData.galleryImages = [
+          ...(product.galleryImages || []),
+          ...uploadedNewImages,
+        ];
       }
 
-      // Handle personalization options + their images
       if (personalizationInputs !== undefined) {
         const existingNormalized = this.normalizePersonalization(
           product.personalization as any[],
@@ -399,7 +395,6 @@ export class ProductsService {
             const existingEntry = existingNormalized[index];
 
             if (!item.imageFile) {
-              // No new image for this slot — keep existing image only if label unchanged
               return {
                 label: item.label,
                 image:
@@ -407,7 +402,6 @@ export class ProductsService {
               };
             }
 
-            // New image uploaded — delete old one first if it exists
             if (existingEntry?.image?.public_id) {
               await this.cloudinaryService.deleteImage(existingEntry.image.public_id);
             }
@@ -427,8 +421,6 @@ export class ProductsService {
           }),
         );
 
-        // Cleanup: if old array had MORE entries than the new one (options removed),
-        // delete those removed options' images from Cloudinary
         if (existingNormalized.length > personalizationInputs.length) {
           const removedEntries = existingNormalized.slice(personalizationInputs.length);
           await Promise.all(
@@ -525,7 +517,6 @@ export class ProductsService {
         });
       }
 
-      // Clean up personalization option images too
       const normalizedPersonalization = this.normalizePersonalization(
         product.personalization as any[],
       );
@@ -601,7 +592,6 @@ export class ProductsService {
           (img) => img.public_id !== publicId,
         );
       } else if (product.personalization && product.personalization.length > 0) {
-        // Remove the image reference from a personalization option if it matches
         product.personalization = (product.personalization as any[]).map((entry) => {
           if (typeof entry === 'string') return entry;
           if (entry?.image?.public_id === publicId) {

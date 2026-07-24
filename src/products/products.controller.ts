@@ -25,9 +25,6 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  // Normalizes personalization input into { label: string }[]
-  // Handles: array of {label} objects, array of plain strings (legacy),
-  // a JSON string, or a comma-separated string.
   private normalizePersonalization(input: unknown): { label: string }[] {
     if (Array.isArray(input)) {
       return input.map((item) =>
@@ -47,7 +44,6 @@ export class ProductsController {
           );
         }
       } catch {
-        // Not JSON — treat as comma-separated legacy list
         return value
           .split(',')
           .map((s) => s.trim())
@@ -85,7 +81,6 @@ export class ProductsController {
       personalizationImages?: Express.Multer.File[];
     },
   ) {
-    // Trim keys and parse form-data fields
     const trimmedDto: any = {};
     for (const key in createProductDto) {
       const trimmedKey = key.trim();
@@ -96,7 +91,6 @@ export class ProductsController {
       trimmedDto.personalization,
     );
 
-    // Stitch labels with uploaded images by index order
     const personalizationWithFiles = personalizationLabels.map((item, index) => ({
       label: item.label,
       imageFile: files?.personalizationImages?.[index] ?? null,
@@ -110,7 +104,7 @@ export class ProductsController {
         trimmedDto.personalizationEnabled === true ||
         trimmedDto.personalizationEnabled === 'true',
     };
-    delete parsedDto.personalization; // service builds this from personalizationWithFiles
+    delete parsedDto.personalization;
 
     return this.productsService.create(
       parsedDto,
@@ -218,14 +212,14 @@ export class ProductsController {
         label: item.label,
         imageFile: files?.personalizationImages?.[index] ?? null,
       }));
-      delete parsedDto.personalization; // service builds this from personalizationWithFiles
+      delete parsedDto.personalization;
     }
 
     return this.productsService.update(
       id,
       parsedDto,
       files?.primaryImage?.[0],
-      undefined, // galleryImages handled via separate /gallery endpoint
+      undefined,
       personalizationWithFiles,
     );
   }
