@@ -73,6 +73,34 @@ export class OrdersService {
       phone: dto.phone,
       shippingAddress: dto.shippingAddress,
     });
+
+    // Notify the admin about the new order. This must never block or fail order
+    // placement, so failures are logged and swallowed.
+    try {
+      const result = await this.mailService.sendOrderPlacedAdminNotification({
+        orderId: order.orderId,
+        customerName: order.customerName,
+        email: order.email,
+        phone: order.phone,
+        qty: order.qty,
+        totalValue: order.totalValue,
+        shippingAddress: order.shippingAddress,
+        district: order.district,
+        items: order.items,
+      });
+      if (!result.success) {
+        this.logger.warn(
+          `[Orders] Admin notification not sent for order ${order.orderId}: ${result.error}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `[Orders] Admin notification threw for order ${order.orderId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     return order;
   }
 
