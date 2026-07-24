@@ -3,7 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Product, ProductSchema } from './schemas/product.schema';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
-import { CloudinaryModule } from '../cloudinary/cloudinary.module';
+import { CloudinaryModule } from '../cloudinary/cloudflare.module';
 
 @Module({
   imports: [

@@ -14,7 +14,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProductsModule } from './products/products.module';
-import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { CloudinaryModule } from './cloudinary/cloudflare.module';
 import { MailModule } from './mail/mail.module';
 import { ContactModule } from './contact/contact.module';
 import { FeedbackModule } from './feedback/feedback.module';

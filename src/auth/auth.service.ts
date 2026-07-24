@@ -16,7 +16,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as crypto from 'crypto';
 import { MailService } from '../mail/mail.service';
-import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { CloudinaryService } from '../cloudinary/cloudflare.service';
 
 @Injectable()
 export class AuthService {
