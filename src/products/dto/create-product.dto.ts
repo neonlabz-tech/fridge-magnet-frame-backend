@@ -1,5 +1,10 @@
-import { IsArray, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+
+export class PersonalizationLabelDto {
+  @IsString()
+  label!: string;
+}
 
 export class CreateProductDto {
   @IsString()
@@ -31,27 +36,41 @@ export class CreateProductDto {
   // @IsIn([true, false])
   // personalizationEnabled?: boolean;
 
-  // @IsOptional()
-  // @Transform(({ value }) => {
-  //   if (Array.isArray(value)) return value;
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return [];
 
-  //   if (typeof value === 'string') {
-  //     const trimmed = value.trim();
-  //     if (!trimmed) return [];
-  //     try {
-  //       const parsed = JSON.parse(trimmed);
-  //       return Array.isArray(parsed) ? parsed : [parsed];
-  //     } catch {
-  //       return [trimmed];
-  //     }
-  //   }
+    let parsed: any;
+    if (Array.isArray(value)) {
+      parsed = value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        // not JSON — treat as comma-separated legacy string list
+        return trimmed
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((label) => ({ label }));
+      }
+    } else {
+      return [];
+    }
 
-  //   if (value === undefined || value === null) return [];
+    if (!Array.isArray(parsed)) return [];
 
-  //   return [value];
-  // })
-  // @IsArray()
-  // personalization?: any[];
+    // Handles both new format [{label}] and legacy format ["Black","White"]
+    return parsed.map((item) =>
+      typeof item === 'string' ? { label: item } : { label: item?.label ?? '' },
+    );
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PersonalizationLabelDto)
+  personalization?: PersonalizationLabelDto[];
 
   @IsOptional()
   @IsString()

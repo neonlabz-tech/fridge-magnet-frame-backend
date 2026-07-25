@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import axios from 'axios';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
@@ -74,8 +75,6 @@ export class OrdersService {
       shippingAddress: dto.shippingAddress,
     });
 
-    // Notify the admin about the new order. This must never block or fail order
-    // placement, so failures are logged and swallowed.
     try {
       const result = await this.mailService.sendOrderPlacedAdminNotification({
         orderId: order.orderId,
@@ -217,13 +216,30 @@ export class OrdersService {
       }, 0);
     }
 
-    // The frontend always uses a fixed Rs 200 shipping fee.
     const SHIPPING_FEE = 200;
     const subtotal = Math.max(0, itemsSubtotal);
     const deliveryFee = orderObj.shippingAddress ? SHIPPING_FEE : 0;
     const finalTotal = subtotal + deliveryFee;
-    
-    // Prepare receipt data
+
+    const itemsWithBase64Images = orderObj.items && orderObj.items.length > 0
+      ? await Promise.all(
+          orderObj.items.map(async (item) => {
+            if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) {
+              try {
+                const base64Image = await this.imageUrlToBase64(item.image);
+                return { ...item, image: base64Image };
+              } catch (err) {
+                this.logger.warn(
+                  `[Orders] Failed to convert item image to base64 for order ${orderNumber}: ${err}`,
+                );
+                return { ...item, image: undefined };
+              }
+            }
+            return item;
+          }),
+        )
+      : orderObj.items;
+
     const receiptData: ReceiptPdfData = {
       orderId: orderObj.orderId,
       customerName: orderObj.customerName,
@@ -236,7 +252,7 @@ export class OrdersService {
       subtotal: subtotal,
       deliveryFee: deliveryFee,
       qty: orderObj.qty,
-      items: orderObj.items,
+      items: itemsWithBase64Images,
       createdAt: (orderObj as any).createdAt || new Date(),
       adminNote: orderObj.adminNote,
     };
@@ -251,4 +267,15 @@ export class OrdersService {
     }
   }
 
+  private async imageUrlToBase64(url: string): Promise<string> {
+    const jpegUrl = url.includes('cloudinary.com')
+      ? url.replace('/upload/', '/upload/f_jpg/')
+      : url;
+
+    const response = await axios.get(jpegUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+    });
+    return `data:image/jpeg;base64,${Buffer.from(response.data).toString('base64')}`;
+  }
 }
