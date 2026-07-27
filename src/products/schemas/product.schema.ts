@@ -29,32 +29,25 @@ export class Product {
   // @Prop({ default: false })
   // personalizationEnabled!: boolean;
 
-  // @Prop({
-  //   type: [
-  //     {
-  //       label: { type: String, required: true },
-  //       price: { type: Number, default: 0 },
-  //       note: { type: String, default: '' },
-  //       image: {
-  //         type: {
-  //           secure_url: String,
-  //           public_id: String,
-  //         },
-  //         default: null,
-  //       },
-  //     },
-  //   ],
-  //   default: [],
-  // })
-  // personalization!: Array<{
-  //   label: string;
-  //   price: number;
-  //   note: string;
-  //   image: {
-  //     secure_url: string;
-  //     public_id: string;
-  //   } | null;
-  // }>;
+  @Prop({
+    type: [
+      {
+        label: { type: String, required: true },
+        image: {
+          type: {
+            secure_url: { type: String },
+            public_id: { type: String },
+          },
+          default: null,
+        },
+      },
+    ],
+    default: [],
+  })
+  personalization!: Array<{
+    label: string;
+    image: { secure_url: string; public_id: string } | null;
+  }>;
 
   @Prop({
     required: true,
