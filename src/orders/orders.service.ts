@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import axios from 'axios';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument } from './schemas/order.schema';
@@ -73,6 +74,32 @@ export class OrdersService {
       phone: dto.phone,
       shippingAddress: dto.shippingAddress,
     });
+
+    try {
+      const result = await this.mailService.sendOrderPlacedAdminNotification({
+        orderId: order.orderId,
+        customerName: order.customerName,
+        email: order.email,
+        phone: order.phone,
+        qty: order.qty,
+        totalValue: order.totalValue,
+        shippingAddress: order.shippingAddress,
+        district: order.district,
+        items: order.items,
+      });
+      if (!result.success) {
+        this.logger.warn(
+          `[Orders] Admin notification not sent for order ${order.orderId}: ${result.error}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `[Orders] Admin notification threw for order ${order.orderId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     return order;
   }
 
@@ -170,27 +197,49 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
 
     const orderObj = order.toObject();
-    
-    // Calculate items subtotal from actual item data
+
+    const getLineTotal = (price: number, quantity: number, name?: string): number => {
+      const normalized = String(name ?? '').trim().toLowerCase();
+      const isFourMagnetsPack =
+        normalized === '4 magnets' || normalized.startsWith('4 magnets ');
+      const packSize = isFourMagnetsPack ? 4 : 1;
+      return price * (quantity / packSize);
+    };
+
     let itemsSubtotal = 0;
-    
+
     if (orderObj.items && orderObj.items.length > 0) {
-      // Sum up each item's price × quantity from the stored order items
       itemsSubtotal = orderObj.items.reduce((sum, item) => {
         const itemPrice = Number(item.price || 0);
         const itemQuantity = Number(item.quantity || 1);
-        return sum + (itemPrice * itemQuantity);
+        return sum + getLineTotal(itemPrice, itemQuantity, item.name);
       }, 0);
     }
-    
-    
+
+    const SHIPPING_FEE = 200;
     const subtotal = Math.max(0, itemsSubtotal);
-    const deliveryFee = subtotal > 0
-      ? Math.max(0, orderObj.totalValue - subtotal)
-      : 0;  
-    const finalTotal = orderObj.totalValue;
-    
-    // Prepare receipt data
+    const deliveryFee = orderObj.shippingAddress ? SHIPPING_FEE : 0;
+    const finalTotal = subtotal + deliveryFee;
+
+    const itemsWithBase64Images = orderObj.items && orderObj.items.length > 0
+      ? await Promise.all(
+          orderObj.items.map(async (item) => {
+            if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) {
+              try {
+                const base64Image = await this.imageUrlToBase64(item.image);
+                return { ...item, image: base64Image };
+              } catch (err) {
+                this.logger.warn(
+                  `[Orders] Failed to convert item image to base64 for order ${orderNumber}: ${err}`,
+                );
+                return { ...item, image: undefined };
+              }
+            }
+            return item;
+          }),
+        )
+      : orderObj.items;
+
     const receiptData: ReceiptPdfData = {
       orderId: orderObj.orderId,
       customerName: orderObj.customerName,
@@ -203,7 +252,7 @@ export class OrdersService {
       subtotal: subtotal,
       deliveryFee: deliveryFee,
       qty: orderObj.qty,
-      items: orderObj.items,
+      items: itemsWithBase64Images,
       createdAt: (orderObj as any).createdAt || new Date(),
       adminNote: orderObj.adminNote,
     };
@@ -218,4 +267,15 @@ export class OrdersService {
     }
   }
 
+  private async imageUrlToBase64(url: string): Promise<string> {
+    const jpegUrl = url.includes('cloudinary.com')
+      ? url.replace('/upload/', '/upload/f_jpg/')
+      : url;
+
+    const response = await axios.get(jpegUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+    });
+    return `data:image/jpeg;base64,${Buffer.from(response.data).toString('base64')}`;
+  }
 }

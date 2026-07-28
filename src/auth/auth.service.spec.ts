@@ -2,7 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
-import { MailService } from './mail.service';
+import { MailService } from '../mail/mail.service';
+import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('AuthService', () => {
@@ -16,7 +17,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: {} },
         { provide: MailService, useValue: {} },
         { provide: ConfigService, useValue: {} },
-        { provide: 'CloudinaryService', useValue: {} },
+        { provide: CloudflareR2Service, useValue: {} },
       ],
     }).compile();
 

@@ -9,7 +9,13 @@ import { Model } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { CloudinaryService } from '../cloudinary/cloudinary.service';
+
+import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
+
+interface PersonalizationInput {
+  label: string;
+  imageFile: Express.Multer.File | null;
+}
 
 @Injectable()
 export class ProductsService {
@@ -19,7 +25,7 @@ export class ProductsService {
 
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-    private cloudinaryService: CloudinaryService,
+    private cloudflareR2Service: CloudflareR2Service,
   ) {}
 
   private getStockStatus(
@@ -28,6 +34,17 @@ export class ProductsService {
     if (stock > 10) return 'In Stock';
     if (stock > 4) return 'Low Stock';
     return 'Out of Stock';
+  }
+
+  private normalizePersonalization(
+    raw: any[] | undefined | null,
+  ): Array<{ label: string; image: { secure_url: string; public_id: string } | null }> {
+    if (!raw || !Array.isArray(raw)) return [];
+    return raw.map((item) =>
+      typeof item === 'string'
+        ? { label: item, image: null }
+        : { label: item?.label ?? '', image: item?.image ?? null },
+    );
   }
 
   private escapeRegex(value: string): string {
@@ -91,7 +108,7 @@ export class ProductsService {
     createProductDto: CreateProductDto,
     primaryImageFile?: Express.Multer.File,
     galleryImageFiles?: Express.Multer.File[],
-    personalizationImageFiles?: Record<string, Express.Multer.File>,
+    personalizationInputs?: PersonalizationInput[],
   ) {
     try {
       const normalizedProductName = this.normalizeName(
@@ -130,7 +147,7 @@ export class ProductsService {
       productData.status = this.getStockStatus(productData.stock);
 
       if (primaryImageFile) {
-        productData.primaryImage = await this.cloudinaryService.uploadImage(
+        productData.primaryImage = await this.cloudflareR2Service.uploadImage(
           primaryImageFile,
           'products/primary',
         );
@@ -138,53 +155,33 @@ export class ProductsService {
 
       if (galleryImageFiles && galleryImageFiles.length > 0) {
         productData.galleryImages =
-          await this.cloudinaryService.uploadMultipleImages(
+          await this.cloudflareR2Service.uploadMultipleImages(
             galleryImageFiles,
             'products/gallery',
           );
       }
 
-      // Upload each personalization option's image (if attached) and embed the URL
-      if (Array.isArray(productData.personalization)) {
-        const hasAnyImageFiles =
-          personalizationImageFiles &&
-          Object.keys(personalizationImageFiles).length > 0;
-
-        if (hasAnyImageFiles) {
-          productData.personalization = await Promise.all(
-            productData.personalization.map(async (option: any) => {
-              const baseOption = {
-                label: option.label,
-                price: Number(option.price) || 0,
-                note: option.note ?? '',
-              };
-              const file = option.imageField
-                ? personalizationImageFiles![option.imageField]
-                : undefined;
-
-              if (!file) {
-                return { ...baseOption, image: null };
-              }
-
-              const uploaded = await this.cloudinaryService.uploadImage(
-                file,
-                'products/personalization',
-              );
-
-              return { ...baseOption, image: uploaded };
-            }),
-          );
-        } else {
-          // No images attached at all — just keep labels, drop the imageField reference
-          productData.personalization = productData.personalization.map(
-            (option: any) => ({
-              label: option.label,
-              price: Number(option.price) || 0,
-              note: option.note ?? '',
-              image: null,
-            }),
-          );
-        }
+      if (personalizationInputs && personalizationInputs.length > 0) {
+        productData.personalization = await Promise.all(
+          personalizationInputs.map(async (item) => {
+            if (!item.imageFile) {
+              return { label: item.label, image: null };
+            }
+            const uploaded = await this.cloudflareR2Service.uploadImage(
+              item.imageFile,
+              'products/personalization',
+            );
+            return {
+              label: item.label,
+              image: {
+                secure_url: uploaded.secure_url,
+                public_id: uploaded.public_id,
+              },
+            };
+          }),
+        );
+      } else {
+        productData.personalization = [];
       }
 
       const product = await this.productModel.create(productData);
@@ -298,6 +295,7 @@ export class ProductsService {
     updateProductDto: UpdateProductDto,
     primaryImageFile?: Express.Multer.File,
     galleryImageFiles?: Express.Multer.File[],
+    personalizationInputs?: PersonalizationInput[],
   ) {
     try {
       const product = await this.productModel.findById(id).exec();
@@ -367,26 +365,71 @@ export class ProductsService {
 
       if (primaryImageFile) {
         if (product.primaryImage?.public_id) {
-          await this.cloudinaryService.deleteImage(product.primaryImage.public_id);
+          await this.cloudflareR2Service.deleteImage(product.primaryImage.public_id);
         }
 
-        updateData.primaryImage = await this.cloudinaryService.uploadImage(
+        updateData.primaryImage = await this.cloudflareR2Service.uploadImage(
           primaryImageFile,
           'products/primary',
         );
       }
 
       if (galleryImageFiles && galleryImageFiles.length > 0) {
-        if (product.galleryImages && product.galleryImages.length > 0) {
-          const publicIds = product.galleryImages.map((img) => img.public_id);
-          await this.cloudinaryService.deleteMultipleImages(publicIds);
-        }
+        const uploadedNewImages = await this.cloudflareR2Service.uploadMultipleImages(
+          galleryImageFiles,
+          'products/gallery',
+        );
 
-        updateData.galleryImages =
-          await this.cloudinaryService.uploadMultipleImages(
-            galleryImageFiles,
-            'products/gallery',
+        updateData.galleryImages = [
+          ...(product.galleryImages || []),
+          ...uploadedNewImages,
+        ];
+      }
+
+      if (personalizationInputs !== undefined) {
+        const existingNormalized = this.normalizePersonalization(
+          product.personalization as any[],
+        );
+
+        updateData.personalization = await Promise.all(
+          personalizationInputs.map(async (item, index) => {
+            const existingEntry = existingNormalized[index];
+
+            if (!item.imageFile) {
+              return {
+                label: item.label,
+                image:
+                  existingEntry?.label === item.label ? existingEntry.image : null,
+              };
+            }
+
+            if (existingEntry?.image?.public_id) {
+              await this.cloudflareR2Service.deleteImage(existingEntry.image.public_id);
+            }
+
+            const uploaded = await this.cloudflareR2Service.uploadImage(
+              item.imageFile,
+              'products/personalization',
+            );
+
+            return {
+              label: item.label,
+              image: {
+                secure_url: uploaded.secure_url,
+                public_id: uploaded.public_id,
+              },
+            };
+          }),
+        );
+
+        if (existingNormalized.length > personalizationInputs.length) {
+          const removedEntries = existingNormalized.slice(personalizationInputs.length);
+          await Promise.all(
+            removedEntries
+              .filter((entry) => entry.image?.public_id)
+              .map((entry) => this.cloudflareR2Service.deleteImage(entry.image!.public_id)),
           );
+        }
       }
 
       updateData.updatedAt = new Date();
@@ -475,9 +518,18 @@ export class ProductsService {
         });
       }
 
+      const normalizedPersonalization = this.normalizePersonalization(
+        product.personalization as any[],
+      );
+      normalizedPersonalization.forEach((entry) => {
+        if (entry.image?.public_id) {
+          imagePublicIds.push(entry.image.public_id);
+        }
+      });
+
       if (imagePublicIds.length > 0) {
         try {
-          await this.cloudinaryService.deleteMultipleImages(imagePublicIds);
+          await this.cloudflareR2Service.deleteMultipleImages(imagePublicIds);
         } catch (error) {
           this.logger.warn(
             `Product ${id} deleted from database, but image cleanup failed: ${
@@ -532,7 +584,7 @@ export class ProductsService {
         throw new NotFoundException(`Product with ID ${productId} not found`);
       }
 
-      await this.cloudinaryService.deleteImage(publicId);
+      await this.cloudflareR2Service.deleteImage(publicId);
 
       if (product.primaryImage?.public_id === publicId) {
         product.primaryImage = null;
@@ -540,6 +592,14 @@ export class ProductsService {
         product.galleryImages = product.galleryImages.filter(
           (img) => img.public_id !== publicId,
         );
+      } else if (product.personalization && product.personalization.length > 0) {
+        product.personalization = (product.personalization as any[]).map((entry) => {
+          if (typeof entry === 'string') return entry;
+          if (entry?.image?.public_id === publicId) {
+            return { label: entry.label, image: null };
+          }
+          return entry;
+        }) as any;
       }
 
       product.updatedAt = new Date();
