@@ -14,7 +14,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProductsModule } from './products/products.module';
-import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { CloudflareR2Module } from './cloudflareR2/cloudflareR2.module';
 import { MailModule } from './mail/mail.module';
 import { ContactModule } from './contact/contact.module';
 import { FeedbackModule } from './feedback/feedback.module';
@@ -47,7 +47,7 @@ const logger = new Logger('MongoDB');
     UsersModule,
     OrdersModule,
     ProductsModule,
-    CloudinaryModule,
+    CloudflareR2Module,
     MailModule,
     ContactModule,
     FeedbackModule,
