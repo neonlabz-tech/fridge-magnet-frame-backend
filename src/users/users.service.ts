@@ -34,7 +34,6 @@ export class UsersService {
       password: hashedPassword,
       role,
       fullName,
-      isActive: true,
       ...(customerFields ?? {}),
     });
     return createdUser.save();
@@ -50,6 +49,14 @@ export class UsersService {
       .update(token.trim())
       .digest('hex');
     return this.userModel.findOne({ passwordResetToken: hashedToken }).exec();
+  }
+
+  async findByActivationToken(token: string): Promise<User | null> {
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token.trim())
+      .digest('hex');
+    return this.userModel.findOne({ activationToken: hashedToken }).exec();
   }
 
   async findAll(): Promise<User[]> {
@@ -215,7 +222,8 @@ export class UsersService {
     const user = await this.create(email, randomPassword, 'user', dto.customerName, {
       phoneNumber: dto.phoneNumber,
       customerAddress: dto.customerAddress,
-    });
+      isActive: true,
+    } as any);
 
     await this.generateAndAssignCustomerId((user._id as any).toString());
 
@@ -383,7 +391,8 @@ export class UsersService {
       {
         phoneNumber,
         customerAddress: order.shippingAddress.trim(),
-      },
+        isActive: true,
+      } as any,
     );
 
     await this.generateAndAssignCustomerId((newUser._id as any).toString());

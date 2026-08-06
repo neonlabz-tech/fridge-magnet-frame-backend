@@ -88,6 +88,8 @@ export class AuthService {
         email: user.email,
         role: user.role,
         isActive: user.isActive,
+        phoneNumber: user.phoneNumber || '',
+        customerAddress: user.customerAddress || '',
       },
     };
   }
@@ -104,32 +106,74 @@ export class AuthService {
       registerDto.password,
       'user',
       registerDto.fullName,
+      {
+        phoneNumber: registerDto.phoneNumber,
+        customerAddress: registerDto.customerAddress,
+      },
     );
+
+    // Generate a raw token, store its SHA-256 hash on the user, expire in 24 h
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+
+    user.activationToken = hashedToken;
+    user.activationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+
+    const frontendBaseUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+
+    const activationLink = `${frontendBaseUrl}/activate-account?token=${rawToken}`;
+
+    try {
+      await this.mailService.sendActivationEmail({
+        to: user.email,
+        fullName: registerDto.fullName,
+        activationLink,
+      });
+    } catch {
+      // Clean up the token so the user can retry — don't leave a dangling record
+      user.activationToken = undefined;
+      user.activationExpires = undefined;
+      await user.save();
+      throw new BadRequestException(
+        'Account created but we could not send the activation email. Please try registering again.',
+      );
+    }
+
+    return {
+      message:
+        'Registration successful! Please check your email and click the activation link to activate your account.',
+    };
+  }
+
+  async activateAccount(token: string) {
+    const user = await this.usersService.findByActivationToken(token);
+
+    if (!user || !user.activationExpires) {
+      throw new BadRequestException('Invalid or expired activation link.');
+    }
+
+    if (user.activationExpires < new Date()) {
+      throw new BadRequestException(
+        'This activation link has expired. Please register again.',
+      );
+    }
+
+    user.isActive = true;
+    user.activationToken = undefined;
+    user.activationExpires = undefined;
+    await user.save();
 
     await this.usersService.ensureForRegisteredUser({
       email: user.email,
-      fullName: registerDto.fullName,
+      fullName: user.fullName,
     });
 
-    const payload = {
-      email: user.email,
-      sub: user._id.toString(),
-      role: user.role,
-    };
-    const token = this.jwtService.sign(payload);
-
-    return {
-      message: 'Registration successful. Please sign in.',
-      token,
-      access_token: token,
-      user: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        isActive: true,
-      },
-    };
+    return { message: 'Account activated successfully! You can now sign in.' };
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -230,7 +274,11 @@ export class AuthService {
       isActive: user.isActive,
       bio: user.bio || '',
       avatar: user.avatar || '',
+      avatarPublicId: user.avatarPublicId || '',
       twoFactorEnabled: user.twoFactorEnabled || false,
+      phoneNumber: user.phoneNumber || '',
+      customerAddress: user.customerAddress || '',
+      customerId: user.customerId || '',
     };
   }
 

@@ -80,7 +80,68 @@ export class MailService implements OnModuleInit {
 
   // ─── Public API ────────────────────────────────────────────────────────────
   // sendMail             — auth.service.ts (password reset), contact.service.ts
+
   // sendOrderStatusUpdate — orders.service.ts
+
+  async sendActivationEmail(opts: {
+    to: string;
+    fullName?: string;
+    activationLink: string;
+  }): Promise<void> {
+    const safeName = escapeHtml(opts.fullName?.trim() || 'there');
+    const safeLink = opts.activationLink;
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
+        <h2 style="color:#002B73;margin-bottom:8px">Welcome to Magnify!</h2>
+        <p style="color:#434652">Hi <strong>${safeName}</strong>,</p>
+        <p style="color:#434652">
+          Thanks for registering. Please confirm your email address to activate your account.
+          This link expires in <strong>24 hours</strong>.
+        </p>
+        <p style="margin:28px 0">
+          <a href="${safeLink}"
+             style="background:#002B73;color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;font-size:15px">
+            Activate my account
+          </a>
+        </p>
+        <p style="font-size:13px;color:#9CA3AF">
+          Or paste this link into your browser:<br/>
+          <span style="word-break:break-all;color:#434652">${safeLink}</span>
+        </p>
+        <hr style="border:none;border-top:1px solid #EEF1F5;margin:24px 0"/>
+        <p style="font-size:12px;color:#9CA3AF">
+          If you did not create a Magnify account you can safely ignore this email.
+        </p>
+      </div>
+    `;
+
+    const text =
+      `Hi ${opts.fullName?.trim() || 'there'},\n\n` +
+      `Thanks for registering with Magnify. Please activate your account by visiting the link below (valid for 24 hours):\n\n` +
+      `${safeLink}\n\n` +
+      `If you did not create a Magnify account you can safely ignore this email.`;
+
+    const label = `activation → ${opts.to}`;
+    try {
+      const messageId = await this.sendWithResend({
+        from: `Magnify <${this.stripName(this.fromAddress)}>`,
+        to: opts.to,
+        subject: 'Activate your Magnify account',
+        html,
+        text,
+        headers: { 'X-Mailer': 'Magnify' },
+      });
+      this.logger.log(
+        `[Mail] SENT ${label}\n` +
+          `  to        : ${opts.to}\n` +
+          `  messageId : ${messageId || 'n/a'}`,
+      );
+    } catch (err) {
+      this.logSendError(err, label);
+      throw err;
+    }
+  }
 
   async sendMail(options: {
     to: string;

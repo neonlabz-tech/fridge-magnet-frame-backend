@@ -15,7 +15,7 @@ export class User extends Document {
   @Prop({ default: 'user', enum: ['user', 'admin'] })
   role!: string;
 
-  @Prop({ type: Boolean, default: true })
+  @Prop({ type: Boolean, default: false })
   isActive!: boolean;
 
   @Prop({ type: String, trim: true, default: '' })
@@ -36,6 +36,12 @@ export class User extends Document {
   @Prop({ type: Date })
   passwordResetExpires?: Date;
 
+  @Prop({ type: String })
+  activationToken?: string;
+
+  @Prop({ type: Date })
+  activationExpires?: Date;
+
   @Prop({ type: String, sparse: true })
   customerId?: string;
 
@@ -49,4 +55,5 @@ export class User extends Document {
 export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ passwordResetToken: 1 });
+UserSchema.index({ activationToken: 1 });
 UserSchema.index({ customerId: 1 }, { sparse: true });
