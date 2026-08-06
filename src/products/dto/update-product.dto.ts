@@ -19,6 +19,10 @@ export class UpdateProductDto {
   price?: any;
 
   @IsOptional()
+  imagecount?: any;
+
+
+  @IsOptional()
   description?: any;
 
   // @IsOptional()
