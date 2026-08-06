@@ -14,4 +14,14 @@ export class RegisterDto {
   @IsNotEmpty()
   @MinLength(6)
   password!: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(20)
+  phoneNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  customerAddress?: string;
 }

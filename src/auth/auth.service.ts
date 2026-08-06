@@ -104,6 +104,10 @@ export class AuthService {
       registerDto.password,
       'user',
       registerDto.fullName,
+      {
+        phoneNumber: registerDto.phoneNumber,
+        customerAddress: registerDto.customerAddress,
+      },
     );
 
     await this.usersService.ensureForRegisteredUser({
@@ -128,6 +132,8 @@ export class AuthService {
         email: user.email,
         role: user.role,
         isActive: true,
+        phoneNumber: user.phoneNumber,
+        customerAddress: user.customerAddress,
       },
     };
   }
@@ -251,7 +257,6 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // If the email is changing, make sure it is not already taken.
     if (dto.email && dto.email.toLowerCase() !== user.email) {
       const existing = await this.usersService.findByEmail(dto.email);
       if (existing) {
@@ -259,7 +264,6 @@ export class AuthService {
       }
     }
 
-    // Handle an optional password change.
     if (dto.newPassword) {
       if (!dto.currentPassword) {
         throw new BadRequestException(
@@ -287,14 +291,12 @@ export class AuthService {
     if (dto.twoFactorEnabled !== undefined)
       profileUpdate.twoFactorEnabled = dto.twoFactorEnabled;
 
-    // When the avatar is explicitly cleared, remove the stored Cloudinary image.
     if (dto.avatar !== undefined) {
       profileUpdate.avatar = dto.avatar;
       if (!dto.avatar && user.avatarPublicId) {
         try {
           await this.cloudflareR2Service.deleteImage(user.avatarPublicId);
         } catch {
-          // Ignore cleanup failures; the reference is still cleared below.
         }
         profileUpdate.avatarPublicId = '';
       }
@@ -321,12 +323,10 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // Remove the previous avatar from Cloudinary before uploading the new one.
     if (user.avatarPublicId) {
       try {
         await this.cloudflareR2Service.deleteImage(user.avatarPublicId);
       } catch {
-        // Ignore cleanup failures and continue with the new upload.
       }
     }
 
