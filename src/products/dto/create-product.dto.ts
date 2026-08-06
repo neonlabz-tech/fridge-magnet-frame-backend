@@ -24,6 +24,10 @@ export class CreateProductDto {
   @IsNumber()
   price!: number;
 
+  @Type(() => Number)
+  @IsNumber()
+  imagecount!: number;
+
   @IsString()
   description!: string;
 
