@@ -375,15 +375,11 @@ export class UsersService {
         fields,
       );
 
-      if (!user.customerId) {
-        await this.generateAndAssignCustomerId((user._id as any).toString());
-      }
-
       return this.serializeCustomer(updated);
     }
 
     const randomPassword = crypto.randomUUID();
-    const newUser = await this.create(
+    await this.create(
       email,
       randomPassword,
       'user',
@@ -395,9 +391,6 @@ export class UsersService {
       } as any,
     );
 
-    await this.generateAndAssignCustomerId((newUser._id as any).toString());
-
-    const fresh = await this.findById((newUser._id as any).toString());
-    return this.serializeCustomer(fresh);
+    return null;
   }
 }

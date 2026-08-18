@@ -42,8 +42,9 @@ export class CreateOrderDto {
   @IsString()
   customerName: string;
 
+  @IsOptional()
   @IsString()
-  customerId: string;
+  customerId?: string;
 
   @IsEmail()
   email: string;
