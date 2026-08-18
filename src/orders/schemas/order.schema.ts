@@ -14,28 +14,28 @@ export enum OrderStatus {
 @Schema({ timestamps: true })
 export class Order {
   @Prop({ required: true, unique: true })
-  orderId: string;
+  orderId!: string;
 
   @Prop({ required: true })
-  customerName: string;
+  customerName!: string;
 
   @Prop({ required: true })
-  customerId: string;
+  customerId!: string;
 
   @Prop({ required: true })
-  email: string;
+  email!: string;
 
   @Prop()
   phone?: string;
 
   @Prop({ required: true })
-  qty: number;
+  qty!: number;
 
   @Prop({ required: true })
-  totalValue: number;
+  totalValue!: number;
 
   @Prop({ default: OrderStatus.PENDING })
-  status: OrderStatus;
+  status!: OrderStatus;
 
   @Prop()
   adminNote?: string;
@@ -49,6 +49,7 @@ export class Order {
   @Prop({ type: [Object], default: [] })
   items?: {
     productId?: string;
+    sku?:string;
     name?: string;
     price?: number;
     quantity?: number;
