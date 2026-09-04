@@ -43,9 +43,6 @@ export class Order {
   @Prop()
   paymentMethod?: string;
 
-  @Prop({ type: [String], default: [] })
-  uploadedImages?: string[];
-
   @Prop()
   shippingAddress?: string;
 
@@ -55,11 +52,12 @@ export class Order {
   @Prop({ type: [Object], default: [] })
   items?: {
     productId?: string;
-    sku?:string;
+    sku?: string;
     name?: string;
     price?: number;
     quantity?: number;
-    image?: string;
+    uploadedImages?: string[];
+    primaryImage?: string;
     frameType?: string;
     colorOption?: string;
   }[];

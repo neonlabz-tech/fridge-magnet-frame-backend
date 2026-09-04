@@ -739,17 +739,17 @@ export class OrdersService {
             orderObj.items.map(
               async (item) => {
                 if (
-                  item.image &&
-                  typeof item.image ===
+                  item.primaryImage &&
+                  typeof item.primaryImage ===
                     'string' &&
-                  item.image.startsWith(
+                  item.primaryImage.startsWith(
                     'http',
                   )
                 ) {
                   try {
                     const base64Image =
                       await this.imageUrlToBase64(
-                        item.image,
+                        item.primaryImage,
                       );
 
                     return {
