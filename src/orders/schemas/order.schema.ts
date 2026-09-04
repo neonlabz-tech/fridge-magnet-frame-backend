@@ -41,6 +41,12 @@ export class Order {
   adminNote?: string;
 
   @Prop()
+  paymentMethod?: string;
+
+  @Prop({ type: [String], default: [] })
+  uploadedImages?: string[];
+
+  @Prop()
   shippingAddress?: string;
 
   @Prop()

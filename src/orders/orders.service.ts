@@ -293,7 +293,7 @@ export class OrdersService {
       email: dto.email,
       customerName: dto.customerName,
       phone: dto.phone,
-      shippingAddress: dto.shippingAddress,
+      shippingAddress: dto.shippingAddress ?? '',
     });
 
     try {

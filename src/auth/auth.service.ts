@@ -391,4 +391,5 @@ export class AuthService {
       user: this.serializeProfile(updated),
     };
   }
+
 }
