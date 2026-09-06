@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -331,6 +332,18 @@ export class UsersService {
       isActive,
     );
     return this.serializeCustomer(updated);
+  }
+
+  async updateCustomerByToken(token: string, dto: UpdateCustomerDto): Promise<any> {
+    const user = await this.findByActivationToken(token);
+    if (!user) throw new UnauthorizedException('Invalid activation token');
+
+    const updated = await this.updateCustomerFields(
+      (user._id as any).toString(),
+      { isActive: true },
+    );
+    return this.serializeCustomer(updated);
+
   }
 
   // ── Methods called by AuthService / OrdersService ─────────────────────────

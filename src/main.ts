@@ -9,8 +9,15 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
   const allowedOrigins = [
+    'https://admin.magnifycreation.lk',
+    'https://magnifycreation.lk',
     'http://localhost:3000',
     'http://localhost:3001',
+    'https://magnify-dashboard.vercel.app',
+    'https://magnify-website.vercel.app'
+    
+
+
   ];
 
   app.enableCors({
