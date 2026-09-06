@@ -1,13 +1,10 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  ConflictException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { UsersService } from '../users/users.service';
+import { Admin } from '../schemas/admin.schema';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -23,6 +20,7 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
+    @InjectModel(Admin.name) private adminModel: Model<Admin>,
     private usersService: UsersService,
     private jwtService: JwtService,
     private mailService: MailService,
@@ -46,38 +44,56 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
-    const user = await this.usersService.findByEmail(loginDto.email);
 
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+    console.log("login:", loginDto);
+    // Check Admin collection first
+    const admin = await this.adminModel.findOne({ email: loginDto.email.toLowerCase() });
+    console.log("admin:", admin);
+    if (admin) {
+      const passwordValid = await bcrypt.compare(loginDto.password, admin.password);
+      if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+
+      const token = this.jwtService.sign({
+        email: admin.email,
+        sub: admin._id.toString(),
+        role: 'admin',
+      });
+
+      return {
+        token,
+        access_token: token,
+        user: {
+          id: admin._id,
+          fullName: admin.fullName || 'Admin',
+          email: admin.email,
+          role: 'admin',
+          isActive: true,
+        },
+      };
     }
 
-    if (user.role === 'user' && user.isActive !== true) {
-      throw new UnauthorizedException(
-        'Your account is disabled. Please contact support.',
-      );
+    // Fall back to User collection
+    const user = await this.usersService.findByEmail(loginDto.email);
+
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    if (user.isActive !== true) {
+      throw new UnauthorizedException('Your account is disabled. Please contact support.');
     }
 
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
+    if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
 
-    if (!passwordValid) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    await this.usersService.ensureForRegisteredUser({
+      email: user.email,
+      fullName: user.fullName,
+    });
 
-    if (user.role === 'user') {
-      await this.usersService.ensureForRegisteredUser({
-        email: user.email,
-        fullName: user.fullName,
-      });
-    }
-
-    const payload = {
+    const token = this.jwtService.sign({
       email: user.email,
       sub: user._id.toString(),
       role: user.role,
-    };
-
-    const token = this.jwtService.sign(payload);
+    });
 
     return {
       token,
@@ -124,7 +140,7 @@ export class AuthService {
     await user.save();
 
     const frontendBaseUrl =
-      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://magnifycreation.lk';
 
     const activationLink = `${frontendBaseUrl}/activate-account?token=${rawToken}`;
 

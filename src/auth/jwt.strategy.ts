@@ -1,14 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Model } from 'mongoose';
 import { UsersService } from '../users/users.service';
+import { Admin } from '../schemas/admin.schema';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private usersService: UsersService,
     private configService: ConfigService,
+    @InjectModel(Admin.name) private adminModel: Model<Admin>,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -18,15 +22,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // Ensure payload contains role for role-based authorization
-    const user = await this.usersService.findByEmail(payload.email);
-    if (!user) {
-      throw new Error('User not found');
+    if (payload.role === 'admin') {
+      const admin = await this.adminModel.findById(payload.sub);
+      if (!admin) throw new UnauthorizedException();
+      return { userId: admin._id.toString(), email: admin.email, role: 'admin' };
     }
-    return { 
-      userId: user._id.toString(), 
-      email: user.email, 
-      role: user.role 
-    };
+
+    const user = await this.usersService.findByEmail(payload.email);
+    if (!user) throw new UnauthorizedException();
+    return { userId: user._id.toString(), email: user.email, role: user.role };
   }
 }

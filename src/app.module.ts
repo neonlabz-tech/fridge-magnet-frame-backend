@@ -18,6 +18,7 @@ import { CloudflareR2Module } from './cloudflareR2/cloudflareR2.module';
 import { MailModule } from './mail/mail.module';
 import { ContactModule } from './contact/contact.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { Admin, AdminSchema } from './schemas/admin.schema';
 
 const logger = new Logger('MongoDB');
 
@@ -43,6 +44,7 @@ const logger = new Logger('MongoDB');
       },
     }),
 
+    MongooseModule.forFeature([{ name: Admin.name, schema: AdminSchema }]),
     AuthModule,
     UsersModule,
     OrdersModule,
