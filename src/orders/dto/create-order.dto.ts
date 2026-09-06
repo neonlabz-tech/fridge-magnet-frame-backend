@@ -23,8 +23,13 @@ class CreateOrderItemDto {
   quantity: number;
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  uploadedImages?: string[];
+
+  @IsOptional()
   @IsString()
-  image?: string;
+  primaryImage?: string;
 
   @IsOptional()
   @IsString()

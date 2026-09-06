@@ -118,4 +118,4 @@ ${summaryTable}
 // Write file
 fs.writeFileSync('bug-report.txt', bugReport);
 
-console.log('✅ Bug report with summary table generated!');
+// console.log('✅ Bug report with summary table generated!');
