@@ -34,6 +34,9 @@ export class Order {
   @Prop({ required: true })
   totalValue!: number;
 
+  @Prop({ default: 0 })
+  deliveryFee!: number;
+
   @Prop({ default: OrderStatus.PENDING })
   status!: OrderStatus;
 

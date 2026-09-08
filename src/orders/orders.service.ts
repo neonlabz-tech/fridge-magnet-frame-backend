@@ -83,6 +83,17 @@ export class OrdersService {
     return 'Out of Stock';
   }
 
+  private getStockQuantity(
+    productName: string,
+    requestedQuantity: number,
+  ): number {
+    const magnetCount = productName.match(/(\d+)\s*magnets?/i);
+
+    return magnetCount
+      ? Number(magnetCount[1])
+      : Math.max(requestedQuantity, 0);
+  }
+
   private async restoreStockForOrder(order: {
     items?: Array<{
       productId?: string;
@@ -236,15 +247,6 @@ export class OrdersService {
           continue;
         }
 
-        const quantity = Math.max(
-          Number(item.quantity || 0),
-          0,
-        );
-
-        if (quantity === 0) {
-          continue;
-        }
-
         const product = Types.ObjectId.isValid(
           item.productId,
         )
@@ -257,6 +259,15 @@ export class OrdersService {
           throw new NotFoundException(
             'Product not found',
           );
+        }
+
+        const quantity = this.getStockQuantity(
+          product.productName,
+          Number(item.quantity || 0),
+        );
+
+        if (quantity === 0) {
+          continue;
         }
 
         if (Number(product.stock || 0) < quantity) {
@@ -284,14 +295,27 @@ export class OrdersService {
         customerId: dto.customerId,
       });
 
+    const subtotal = (dto.items || []).reduce(
+      (sum, item) =>
+        sum + Number(item.price || 0) * Number(item.quantity || 1),
+      0,
+    );
+    const deliveryFee =
+      dto.paymentMethod === 'cod' &&
+      dto.shippingAddress?.toLowerCase().includes('jaffna')
+        ? 300
+        : 0;
+
     const order = await this.orderModel.create({
       ...dto,
+      totalValue: subtotal + deliveryFee,
+      deliveryFee,
       customerId: resolvedCustomerId,
     });
 
     await this.usersService.updateFromOrder({
-      email: dto.email,
-      customerName: dto.customerName,
+      email: dto.email ?? '',
+      customerName: dto.customerName ?? '',
       phone: dto.phone,
       shippingAddress: dto.shippingAddress ?? '',
     });
@@ -306,6 +330,9 @@ export class OrdersService {
             phone: order.phone,
             qty: order.qty,
             totalValue: order.totalValue,
+            subtotal,
+            deliveryFee,
+            paymentMethod: order.paymentMethod,
             shippingAddress: order.shippingAddress,
             district: order.district,
             items: order.items,
@@ -725,9 +752,12 @@ export class OrdersService {
     );
 
     const deliveryFee =
-      orderObj.shippingAddress
-        ? SHIPPING_FEE
-        : 0;
+      typeof orderObj.deliveryFee === 'number'
+        ? orderObj.deliveryFee
+        : orderObj.paymentMethod === 'cod' &&
+            orderObj.shippingAddress?.toLowerCase().includes('jaffna')
+          ? 300
+          : 0;
 
     const finalTotal =
       subtotal + deliveryFee;

@@ -14,13 +14,13 @@ class CreateOrderItemDto {
   productId?: string;
 
   @IsString()
-  name: string;
+  name?: string;
 
   @IsNumber()
-  price: number;
+  price?: number;
 
   @IsNumber()
-  quantity: number;
+  quantity?: number;
 
   @IsOptional()
   @IsArray()
@@ -42,30 +42,34 @@ class CreateOrderItemDto {
 
 export class CreateOrderDto {
   @IsString()
-  orderId: string;
+  orderId?: string;
 
   @IsString()
-  customerName: string;
+  customerName?: string;
 
   @IsOptional()
   @IsString()
   customerId?: string;
 
   @IsEmail()
-  email: string;
+  email?: string;
 
   @IsOptional()
   @IsString()
   phone?: string;
 
   @IsNumber()
-  qty: number;
+  qty?: number;
 
   @IsNumber()
-  totalValue: number;
+  totalValue?: number;
+
+  @IsOptional()
+  @IsNumber()
+  deliveryFee?: number;
 
   @IsString()
-  shippingAddress: string;
+  shippingAddress?: string;
 
   @IsOptional()
   @IsString()
