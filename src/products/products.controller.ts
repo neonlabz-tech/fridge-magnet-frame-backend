@@ -21,7 +21,7 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
-@Controller('api/products')
+@Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
@@ -100,6 +100,7 @@ export class ProductsController {
       ...trimmedDto,
       stock: trimmedDto.stock ? Number(trimmedDto.stock) : 0,
       price: trimmedDto.price ? Number(trimmedDto.price) : 0,
+      imagecount: trimmedDto.imagecount ? Number(trimmedDto.imagecount) : 0,
       personalizationEnabled:
         trimmedDto.personalizationEnabled === true ||
         trimmedDto.personalizationEnabled === 'true',
@@ -195,6 +196,9 @@ export class ProductsController {
     }
     if (trimmedDto.price !== undefined) {
       parsedDto.price = Number(trimmedDto.price) || 0;
+    }
+    if (trimmedDto.imagecount !== undefined) {
+      parsedDto.imagecount = Number(trimmedDto.imagecount) || 0;
     }
     if (trimmedDto.personalizationEnabled !== undefined) {
       parsedDto.personalizationEnabled =

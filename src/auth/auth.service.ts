@@ -1,13 +1,10 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  ConflictException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { UsersService } from '../users/users.service';
+import { Admin } from '../schemas/admin.schema';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -23,6 +20,7 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
+    @InjectModel(Admin.name) private adminModel: Model<Admin>,
     private usersService: UsersService,
     private jwtService: JwtService,
     private mailService: MailService,
@@ -46,38 +44,56 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
-    const user = await this.usersService.findByEmail(loginDto.email);
 
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+    console.log("login:", loginDto);
+    // Check Admin collection first
+    const admin = await this.adminModel.findOne({ email: loginDto.email.toLowerCase() });
+    console.log("admin:", admin);
+    if (admin) {
+      const passwordValid = await bcrypt.compare(loginDto.password, admin.password);
+      if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+
+      const token = this.jwtService.sign({
+        email: admin.email,
+        sub: admin._id.toString(),
+        role: 'admin',
+      });
+
+      return {
+        token,
+        access_token: token,
+        user: {
+          id: admin._id,
+          fullName: admin.fullName || 'Admin',
+          email: admin.email,
+          role: 'admin',
+          isActive: true,
+        },
+      };
     }
 
-    if (user.role === 'user' && user.isActive !== true) {
-      throw new UnauthorizedException(
-        'Your account is disabled. Please contact support.',
-      );
+    // Fall back to User collection
+    const user = await this.usersService.findByEmail(loginDto.email);
+
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    if (user.isActive !== true) {
+      throw new UnauthorizedException('Your account is disabled. Please contact support.');
     }
 
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
+    if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
 
-    if (!passwordValid) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    await this.usersService.ensureForRegisteredUser({
+      email: user.email,
+      fullName: user.fullName,
+    });
 
-    if (user.role === 'user') {
-      await this.usersService.ensureForRegisteredUser({
-        email: user.email,
-        fullName: user.fullName,
-      });
-    }
-
-    const payload = {
+    const token = this.jwtService.sign({
       email: user.email,
       sub: user._id.toString(),
       role: user.role,
-    };
-
-    const token = this.jwtService.sign(payload);
+    });
 
     return {
       token,
@@ -88,6 +104,8 @@ export class AuthService {
         email: user.email,
         role: user.role,
         isActive: user.isActive,
+        phoneNumber: user.phoneNumber || '',
+        customerAddress: user.customerAddress || '',
       },
     };
   }
@@ -104,32 +122,74 @@ export class AuthService {
       registerDto.password,
       'user',
       registerDto.fullName,
+      {
+        phoneNumber: registerDto.phoneNumber,
+        customerAddress: registerDto.customerAddress,
+      },
     );
+
+    // Generate a raw token, store its SHA-256 hash on the user, expire in 24 h
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+
+    user.activationToken = hashedToken;
+    user.activationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+
+    const frontendBaseUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://magnifycreation.lk';
+
+    const activationLink = `${frontendBaseUrl}/activate-account?token=${rawToken}`;
+
+    try {
+      await this.mailService.sendActivationEmail({
+        to: user.email,
+        fullName: registerDto.fullName,
+        activationLink,
+      });
+    } catch {
+      // Clean up the token so the user can retry — don't leave a dangling record
+      user.activationToken = undefined;
+      user.activationExpires = undefined;
+      await user.save();
+      throw new BadRequestException(
+        'Account created but we could not send the activation email. Please try registering again.',
+      );
+    }
+
+    return {
+      message:
+        'Registration successful! Please check your email and click the activation link to activate your account.',
+    };
+  }
+
+  async activateAccount(token: string) {
+    const user = await this.usersService.findByActivationToken(token);
+
+    if (!user || !user.activationExpires) {
+      throw new BadRequestException('Invalid or expired activation link.');
+    }
+
+    if (user.activationExpires < new Date()) {
+      throw new BadRequestException(
+        'This activation link has expired. Please register again.',
+      );
+    }
+
+    user.isActive = true;
+    user.activationToken = undefined;
+    user.activationExpires = undefined;
+    await user.save();
 
     await this.usersService.ensureForRegisteredUser({
       email: user.email,
-      fullName: registerDto.fullName,
+      fullName: user.fullName,
     });
 
-    const payload = {
-      email: user.email,
-      sub: user._id.toString(),
-      role: user.role,
-    };
-    const token = this.jwtService.sign(payload);
-
-    return {
-      message: 'Registration successful. Please sign in.',
-      token,
-      access_token: token,
-      user: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        isActive: true,
-      },
-    };
+    return { message: 'Account activated successfully! You can now sign in.' };
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -230,7 +290,11 @@ export class AuthService {
       isActive: user.isActive,
       bio: user.bio || '',
       avatar: user.avatar || '',
+      avatarPublicId: user.avatarPublicId || '',
       twoFactorEnabled: user.twoFactorEnabled || false,
+      phoneNumber: user.phoneNumber || '',
+      customerAddress: user.customerAddress || '',
+      customerId: user.customerId || '',
     };
   }
 
@@ -343,4 +407,5 @@ export class AuthService {
       user: this.serializeProfile(updated),
     };
   }
+
 }

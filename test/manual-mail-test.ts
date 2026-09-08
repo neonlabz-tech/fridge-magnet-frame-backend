@@ -30,7 +30,7 @@ async function main() {
     adminNote: 'This is a manual Resend delivery test.',
   });
 
-  console.log('sendOrderStatusUpdate result:', result);
+  // console.log('sendOrderStatusUpdate result:', result);
 
   await app.close();
   process.exit(result.success ? 0 : 1);

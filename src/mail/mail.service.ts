@@ -80,7 +80,68 @@ export class MailService implements OnModuleInit {
 
   // ─── Public API ────────────────────────────────────────────────────────────
   // sendMail             — auth.service.ts (password reset), contact.service.ts
+
   // sendOrderStatusUpdate — orders.service.ts
+
+  async sendActivationEmail(opts: {
+    to: string;
+    fullName?: string;
+    activationLink: string;
+  }): Promise<void> {
+    const safeName = escapeHtml(opts.fullName?.trim() || 'there');
+    const safeLink = opts.activationLink;
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
+        <h2 style="color:#002B73;margin-bottom:8px">Welcome to Magnify!</h2>
+        <p style="color:#434652">Hi <strong>${safeName}</strong>,</p>
+        <p style="color:#434652">
+          Thanks for registering. Please confirm your email address to activate your account.
+          This link expires in <strong>24 hours</strong>.
+        </p>
+        <p style="margin:28px 0">
+          <a href="${safeLink}"
+             style="background:#002B73;color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;font-size:15px">
+            Activate my account
+          </a>
+        </p>
+        <p style="font-size:13px;color:#9CA3AF">
+          Or paste this link into your browser:<br/>
+          <span style="word-break:break-all;color:#434652">${safeLink}</span>
+        </p>
+        <hr style="border:none;border-top:1px solid #EEF1F5;margin:24px 0"/>
+        <p style="font-size:12px;color:#9CA3AF">
+          If you did not create a Magnify account you can safely ignore this email.
+        </p>
+      </div>
+    `;
+
+    const text =
+      `Hi ${opts.fullName?.trim() || 'there'},\n\n` +
+      `Thanks for registering with Magnify. Please activate your account by visiting the link below (valid for 24 hours):\n\n` +
+      `${safeLink}\n\n` +
+      `If you did not create a Magnify account you can safely ignore this email.`;
+
+    const label = `activation → ${opts.to}`;
+    try {
+      const messageId = await this.sendWithResend({
+        from: `Magnify <${this.stripName(this.fromAddress)}>`,
+        to: opts.to,
+        subject: 'Activate your Magnify account',
+        html,
+        text,
+        headers: { 'X-Mailer': 'Magnify' },
+      });
+      this.logger.log(
+        `[Mail] SENT ${label}\n` +
+          `  to        : ${opts.to}\n` +
+          `  messageId : ${messageId || 'n/a'}`,
+      );
+    } catch (err) {
+      this.logSendError(err, label);
+      throw err;
+    }
+  }
 
   async sendMail(options: {
     to: string;
@@ -208,6 +269,9 @@ export class MailService implements OnModuleInit {
     phone?: string;
     qty: number;
     totalValue: number;
+    subtotal: number;
+    deliveryFee: number;
+    paymentMethod?: string;
     shippingAddress?: string;
     district?: string;
     items?: {
@@ -296,6 +360,7 @@ export class MailService implements OnModuleInit {
           <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Shipping Address</td><td style="padding:6px 12px;color:#434652">${safeAddress}</td></tr>
           <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">District</td><td style="padding:6px 12px;color:#434652">${safeDistrict}</td></tr>
           <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Total Items</td><td style="padding:6px 12px;color:#434652">${Number(order.qty || 0)}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Payment Method</td><td style="padding:6px 12px;color:#434652">${escapeHtml(order.paymentMethod || '—')}</td></tr>
         </table>
         <h3 style="color:#002B73;margin-bottom:4px">Items</h3>
         <table style="border-collapse:collapse;width:100%;margin-bottom:16px">
@@ -309,9 +374,11 @@ export class MailService implements OnModuleInit {
           </thead>
           <tbody>${itemRowsHtml}</tbody>
         </table>
-        <p style="font-size:20px;font-weight:bold;color:#BC0000;text-align:right;margin:0">
-          Order Total: ${money(order.totalValue)}
-        </p>
+        <table style="border-collapse:collapse;margin-left:auto;margin-top:16px">
+          <tr><td style="padding:4px 12px;color:#434652">Subtotal</td><td style="padding:4px 12px;text-align:right">${money(order.subtotal)}</td></tr>
+          <tr><td style="padding:4px 12px;color:#434652">Delivery Fee</td><td style="padding:4px 12px;text-align:right">${order.deliveryFee ? money(order.deliveryFee) : 'Free'}</td></tr>
+          <tr><td style="padding:6px 12px;font-size:20px;font-weight:bold;color:#BC0000">Order Total</td><td style="padding:6px 12px;font-size:20px;font-weight:bold;color:#BC0000;text-align:right">${money(order.totalValue)}</td></tr>
+        </table>
       </div>
     `;
 
@@ -325,6 +392,8 @@ export class MailService implements OnModuleInit {
       `District: ${order.district || '—'}\n` +
       `Total Items: ${Number(order.qty || 0)}\n\n` +
       `Items:\n${itemsText}\n\n` +
+      `Subtotal: ${money(order.subtotal)}\n` +
+      `Delivery Fee: ${order.deliveryFee ? money(order.deliveryFee) : 'Free'}\n` +
       `Order Total: ${money(order.totalValue)}`;
 
     const label = `admin order #${order.orderId} → ${this.adminAddress}`;

@@ -14,31 +14,37 @@ export enum OrderStatus {
 @Schema({ timestamps: true })
 export class Order {
   @Prop({ required: true, unique: true })
-  orderId: string;
+  orderId!: string;
 
   @Prop({ required: true })
-  customerName: string;
+  customerName!: string;
 
   @Prop({ required: true })
-  customerId: string;
+  customerId!: string;
 
   @Prop({ required: true })
-  email: string;
+  email!: string;
 
   @Prop()
   phone?: string;
 
   @Prop({ required: true })
-  qty: number;
+  qty!: number;
 
   @Prop({ required: true })
-  totalValue: number;
+  totalValue!: number;
+
+  @Prop({ default: 0 })
+  deliveryFee!: number;
 
   @Prop({ default: OrderStatus.PENDING })
-  status: OrderStatus;
+  status!: OrderStatus;
 
   @Prop()
   adminNote?: string;
+
+  @Prop()
+  paymentMethod?: string;
 
   @Prop()
   shippingAddress?: string;
@@ -49,10 +55,12 @@ export class Order {
   @Prop({ type: [Object], default: [] })
   items?: {
     productId?: string;
+    sku?: string;
     name?: string;
     price?: number;
     quantity?: number;
-    image?: string;
+    uploadedImages?: string[];
+    primaryImage?: string;
     frameType?: string;
     colorOption?: string;
   }[];

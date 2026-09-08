@@ -1,4 +1,4 @@
-import { IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { IsOptional, IsArray, IsNumber, ValidateNested } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { PersonalizationLabelDto } from './create-product.dto';
 
@@ -13,10 +13,20 @@ export class UpdateProductDto {
   // category?: any;
 
   @IsOptional()
-  stock?: any;
+  @Type(() => Number)
+  @IsNumber()
+  stock?: number;
 
   @IsOptional()
-  price?: any;
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  imagecount?: number;
+
 
   @IsOptional()
   description?: any;

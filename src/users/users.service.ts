@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -34,7 +35,6 @@ export class UsersService {
       password: hashedPassword,
       role,
       fullName,
-      isActive: true,
       ...(customerFields ?? {}),
     });
     return createdUser.save();
@@ -50,6 +50,14 @@ export class UsersService {
       .update(token.trim())
       .digest('hex');
     return this.userModel.findOne({ passwordResetToken: hashedToken }).exec();
+  }
+
+  async findByActivationToken(token: string): Promise<User | null> {
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token.trim())
+      .digest('hex');
+    return this.userModel.findOne({ activationToken: hashedToken }).exec();
   }
 
   async findAll(): Promise<User[]> {
@@ -215,7 +223,8 @@ export class UsersService {
     const user = await this.create(email, randomPassword, 'user', dto.customerName, {
       phoneNumber: dto.phoneNumber,
       customerAddress: dto.customerAddress,
-    });
+      isActive: true,
+    } as any);
 
     await this.generateAndAssignCustomerId((user._id as any).toString());
 
@@ -325,6 +334,18 @@ export class UsersService {
     return this.serializeCustomer(updated);
   }
 
+  async updateCustomerByToken(token: string, dto: UpdateCustomerDto): Promise<any> {
+    const user = await this.findByActivationToken(token);
+    if (!user) throw new UnauthorizedException('Invalid activation token');
+
+    const updated = await this.updateCustomerFields(
+      (user._id as any).toString(),
+      { isActive: true },
+    );
+    return this.serializeCustomer(updated);
+
+  }
+
   // ── Methods called by AuthService / OrdersService ─────────────────────────
 
   async ensureForRegisteredUser(user: {
@@ -367,15 +388,11 @@ export class UsersService {
         fields,
       );
 
-      if (!user.customerId) {
-        await this.generateAndAssignCustomerId((user._id as any).toString());
-      }
-
       return this.serializeCustomer(updated);
     }
 
     const randomPassword = crypto.randomUUID();
-    const newUser = await this.create(
+    await this.create(
       email,
       randomPassword,
       'user',
@@ -383,12 +400,10 @@ export class UsersService {
       {
         phoneNumber,
         customerAddress: order.shippingAddress.trim(),
-      },
+        isActive: true,
+      } as any,
     );
 
-    await this.generateAndAssignCustomerId((newUser._id as any).toString());
-
-    const fresh = await this.findById((newUser._id as any).toString());
-    return this.serializeCustomer(fresh);
+    return null;
   }
 }

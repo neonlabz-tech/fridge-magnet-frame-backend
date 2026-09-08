@@ -5,6 +5,7 @@ import {
   HttpCode,
   Patch,
   Post,
+  Query,
   Request,
   UploadedFile,
   UseGuards,
@@ -46,6 +47,12 @@ export class AuthController {
 	@HttpCode(200)
 	async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
 		return this.authService.resetPassword(resetPasswordDto);
+	}
+
+	@Get('activate')
+	@HttpCode(200)
+	async activateAccount(@Query('token') token: string) {
+		return this.authService.activateAccount(token);
 	}
 
 	@UseGuards(JwtAuthGuard)

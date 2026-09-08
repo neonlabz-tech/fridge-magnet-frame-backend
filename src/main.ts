@@ -1,35 +1,46 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
-import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
+import { setServers } from 'node:dns';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  const logger = new Logger('Bootstrap');
+  setServers(['1.1.1.1', '8.8.8.8']);
 
-  app.setGlobalPrefix('api/v1');
+  const app = await NestFactory.create(AppModule);
+  const allowedOrigins = [
+    'https://admin.magnifycreation.lk',
+    'https://magnifycreation.lk',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://magnify-dashboard.vercel.app',
+    'https://magnify-website.vercel.app'
+    
+
+
+  ];
 
   app.enableCors({
-  origin: [
-    'http://localhost:3000',
-    'https://magnifys.vercel.app',
-  ],
-});
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+  });
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  app.use(cookieParser());
+  app.setGlobalPrefix('api/v1');
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
-  app.useGlobalFilters(new AllExceptionsFilter());
-
-  const port = process.env.PORT || 5000;
-  await app.listen(port);
-
-  logger.log(`🚀 Magnify Admin API running on http://localhost:${port}/api/v1`);
+  await app.listen(process.env.PORT || 4000);
 }
-
 bootstrap();
+
+

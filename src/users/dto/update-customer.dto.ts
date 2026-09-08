@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsOptional,
   IsString,
   Matches,
@@ -32,4 +33,8 @@ export class UpdateCustomerDto {
   @MinLength(5)
   @MaxLength(255)
   customerAddress?: string;
+
+@IsOptional()
+@IsBoolean()
+  isActive?: boolean;
 }

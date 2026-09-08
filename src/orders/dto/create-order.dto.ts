@@ -14,17 +14,22 @@ class CreateOrderItemDto {
   productId?: string;
 
   @IsString()
-  name: string;
+  name?: string;
 
   @IsNumber()
-  price: number;
+  price?: number;
 
   @IsNumber()
-  quantity: number;
+  quantity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  uploadedImages?: string[];
 
   @IsOptional()
   @IsString()
-  image?: string;
+  primaryImage?: string;
 
   @IsOptional()
   @IsString()
@@ -37,29 +42,34 @@ class CreateOrderItemDto {
 
 export class CreateOrderDto {
   @IsString()
-  orderId: string;
+  orderId?: string;
 
   @IsString()
-  customerName: string;
+  customerName?: string;
 
+  @IsOptional()
   @IsString()
-  customerId: string;
+  customerId?: string;
 
   @IsEmail()
-  email: string;
+  email?: string;
 
   @IsOptional()
   @IsString()
   phone?: string;
 
   @IsNumber()
-  qty: number;
+  qty?: number;
 
   @IsNumber()
-  totalValue: number;
+  totalValue?: number;
+
+  @IsOptional()
+  @IsNumber()
+  deliveryFee?: number;
 
   @IsString()
-  shippingAddress: string;
+  shippingAddress?: string;
 
   @IsOptional()
   @IsString()
@@ -68,6 +78,14 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   adminNote?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsArray()
+  uploadedImages?: string[];
 
   @IsOptional()
   @IsArray()
