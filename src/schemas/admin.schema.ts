@@ -17,6 +17,18 @@ export class Admin extends Document {
 
   @Prop({ trim: true })
   fullName?: string;
+
+  @Prop({ type: String, trim: true, default: '' })
+  bio?: string;
+
+  @Prop({ type: String, default: '' })
+  avatar?: string;
+
+  @Prop({ type: String, default: '' })
+  avatarPublicId?: string;
+
+  @Prop({ type: Boolean, default: false })
+  twoFactorEnabled?: boolean;
 }
 
 export const AdminSchema = SchemaFactory.createForClass(Admin);

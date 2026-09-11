@@ -298,8 +298,10 @@ export class AuthService {
     };
   }
 
-  async getProfile(userId: string) {
-    const user = await this.usersService.findById(userId);
+  async getProfile(userId: string, role?: string) {
+    const user = role === 'admin'
+      ? await this.adminModel.findById(userId).exec()
+      : await this.usersService.findById(userId);
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -308,8 +310,11 @@ export class AuthService {
     return { user: this.serializeProfile(user) };
   }
 
-  async updateProfile(userId: string, dto: UpdateProfileDto) {
-    const user = await this.usersService.findByIdWithPassword(userId);
+  async updateProfile(userId: string, dto: UpdateProfileDto, role?: string) {
+    const isAdmin = role === 'admin';
+    const user = isAdmin
+      ? await this.adminModel.findById(userId).exec()
+      : await this.usersService.findByIdWithPassword(userId);
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -341,7 +346,12 @@ export class AuthService {
       }
 
       const hashed = await bcrypt.hash(dto.newPassword, 10);
-      await this.usersService.updatePassword(userId, hashed);
+      if (isAdmin) {
+        user.password = hashed;
+        await user.save();
+      } else {
+        await this.usersService.updatePassword(userId, hashed);
+      }
     }
 
     const profileUpdate: Record<string, unknown> = {};
@@ -364,9 +374,13 @@ export class AuthService {
       }
     }
 
-    const updated = Object.keys(profileUpdate).length
-      ? await this.usersService.updateProfile(userId, profileUpdate)
-      : await this.usersService.findById(userId);
+    const updated = isAdmin
+      ? await this.adminModel
+          .findByIdAndUpdate(userId, { $set: profileUpdate }, { new: true })
+          .exec()
+      : Object.keys(profileUpdate).length
+        ? await this.usersService.updateProfile(userId, profileUpdate)
+        : await this.usersService.findById(userId);
 
     return {
       message: 'Profile updated successfully',
@@ -374,12 +388,15 @@ export class AuthService {
     };
   }
 
-  async uploadAvatar(userId: string, file: Express.Multer.File) {
+  async uploadAvatar(userId: string, file: Express.Multer.File, role?: string) {
     if (!file) {
       throw new BadRequestException('No image file provided');
     }
 
-    const user = await this.usersService.findByIdWithPassword(userId);
+    const isAdmin = role === 'admin';
+    const user = isAdmin
+      ? await this.adminModel.findById(userId).exec()
+      : await this.usersService.findByIdWithPassword(userId);
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -396,11 +413,19 @@ export class AuthService {
 
     const uploaded = await this.cloudflareR2Service.uploadImage(file, 'avatars');
 
-    const updated = await this.usersService.updateAvatar(
-      userId,
-      uploaded.secure_url,
-      uploaded.public_id,
-    );
+    const updated = isAdmin
+      ? await this.adminModel
+          .findByIdAndUpdate(
+            userId,
+            { $set: { avatar: uploaded.secure_url, avatarPublicId: uploaded.public_id } },
+            { new: true },
+          )
+          .exec()
+      : await this.usersService.updateAvatar(
+          userId,
+          uploaded.secure_url,
+          uploaded.public_id,
+        );
 
     return {
       message: 'Avatar updated successfully',
