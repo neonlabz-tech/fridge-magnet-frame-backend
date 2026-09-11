@@ -57,26 +57,30 @@ export class AuthController {
 
 	@UseGuards(JwtAuthGuard)
 	@Get('profile')
-	async getProfile(@Request() req: { user: { userId: string } }) {
-		return this.authService.getProfile(req.user.userId);
+	async getProfile(@Request() req: { user: { userId: string; role?: string } }) {
+		return this.authService.getProfile(req.user.userId, req.user.role);
 	}
 
 	@UseGuards(JwtAuthGuard)
 	@Patch('profile')
 	async updateProfile(
-		@Request() req: { user: { userId: string } },
+		@Request() req: { user: { userId: string; role?: string } },
 		@Body() updateProfileDto: UpdateProfileDto,
 	) {
-		return this.authService.updateProfile(req.user.userId, updateProfileDto);
+		return this.authService.updateProfile(
+			req.user.userId,
+			updateProfileDto,
+			req.user.role,
+		);
 	}
 
 	@UseGuards(JwtAuthGuard)
 	@Post('profile/avatar')
 	@UseInterceptors(FileInterceptor('avatar', { storage: memoryStorage() }))
 	async uploadAvatar(
-		@Request() req: { user: { userId: string } },
+		@Request() req: { user: { userId: string; role?: string } },
 		@UploadedFile() file: Express.Multer.File,
 	) {
-		return this.authService.uploadAvatar(req.user.userId, file);
+		return this.authService.uploadAvatar(req.user.userId, file, req.user.role);
 	}
 }
