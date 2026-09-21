@@ -131,7 +131,7 @@ export class ProductsController {
   @Get()
   async findAll(
     @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
+    @Query('limit') limit: string = '100',
     @Query('search') search?: string,
     @Query('category') category?: string,
     @Query('status') status?: string,
@@ -139,7 +139,7 @@ export class ProductsController {
     @Query('maxPrice') maxPrice?: string,
   ) {
     const pageNum = parseInt(page, 10) || 1;
-    const limitNum = parseInt(limit, 10) || 10;
+    const limitNum = parseInt(limit, 100) || 100;
     const minPriceNum = minPrice ? parseFloat(minPrice) : undefined;
     const maxPriceNum = maxPrice ? parseFloat(maxPrice) : undefined;
 

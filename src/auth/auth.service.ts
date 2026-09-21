@@ -78,7 +78,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     if (user.isActive !== true) {
-      throw new UnauthorizedException('Your account is disabled. Please contact support.');
+      throw new UnauthorizedException('Please check your email and verify your email address.');
     }
 
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);

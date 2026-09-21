@@ -11,13 +11,8 @@ async function bootstrap() {
   const allowedOrigins = [
     'https://admin.magnifycreation.lk',
     'https://magnifycreation.lk',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'https://magnify-dashboard.vercel.app',
-    'https://magnify-website.vercel.app'
-    
-
-
+    'https://www.magnifycreation.lk',
+    'https://www.admin.magnifycreation.lk',
   ];
 
   app.enableCors({
