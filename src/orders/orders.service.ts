@@ -3,6 +3,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -10,7 +12,8 @@ import axios from 'axios';
 
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
-import { Order, OrderDocument } from './schemas/order.schema';
+import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
+import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 
 import {
   Product,
@@ -25,7 +28,7 @@ import {
 } from './services/pdf-generator.service';
 
 @Injectable()
-export class OrdersService {
+export class OrdersService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersService.name);
 
   private readonly statusRank: Record<string, number> = {
@@ -46,7 +49,134 @@ export class OrdersService {
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
     private readonly pdfGeneratorService: PdfGeneratorService,
+    private readonly cloudflareR2Service: CloudflareR2Service,
   ) {}
+
+  /* ---------- customer photo clean-up ---------- */
+
+  private photoTimer?: NodeJS.Timeout;
+  private photoStartTimer?: NodeJS.Timeout;
+
+  onModuleInit() {
+    // Hourly check (first run 1 minute after start). No extra scheduler package needed.
+    this.photoStartTimer = setTimeout(() => void this.purgeExpiredCustomerImages(), 60_000);
+    this.photoTimer = setInterval(() => void this.purgeExpiredCustomerImages(), 60 * 60 * 1000);
+    this.photoStartTimer.unref?.();
+    this.photoTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.photoStartTimer) clearTimeout(this.photoStartTimer);
+    if (this.photoTimer) clearInterval(this.photoTimer);
+  }
+
+  /** R2 object key of a customer upload, or null if the URL is not one of ours (only `orders/` is ever deleted). */
+  private customerImageKey(url: string): string | null {
+    const base = String(process.env.R2_PUBLIC_URL ?? '').replace(/\/+$/, '');
+    if (!base || typeof url !== 'string' || !url.startsWith(`${base}/`)) return null;
+    try {
+      const key = url
+        .slice(base.length + 1)
+        .split(/[?#]/)[0]
+        .split('/')
+        .map(decodeURIComponent)
+        .join('/');
+      return key.startsWith('orders/') && !key.includes('..') ? key : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Deletes the customer's uploaded photos of an order from R2 and removes them from the order. */
+  private async purgeCustomerImages(order: OrderDocument): Promise<{ deleted: number; failed: number }> {
+    let deleted = 0;
+    let failed = 0;
+    const items = (order.items ?? []).map((item) => ({ ...item }));
+
+    for (const item of items) {
+      const kept: string[] = [];
+      for (const url of item.uploadedImages ?? []) {
+        const key = this.customerImageKey(url);
+        if (!key) {
+          kept.push(url); // not a customer upload in our bucket: never touched
+          continue;
+        }
+        try {
+          await this.cloudflareR2Service.deleteImage(key);
+          deleted += 1;
+        } catch (err) {
+          failed += 1;
+          kept.push(url);
+          this.logger.warn(`[Orders] Could not delete ${key} of ${order.orderId}: ${err}`);
+        }
+      }
+      item.uploadedImages = kept;
+    }
+
+    order.items = items as any;
+    order.markModified('items');
+    if (failed === 0) order.imagesDeletedAt = new Date();
+    await order.save();
+    return { deleted, failed };
+  }
+
+  /** Delivered orders older than the retention period (default 7 days) lose their customer photos. */
+  async purgeExpiredCustomerImages(): Promise<void> {
+    try {
+      const days = Number(process.env.CUSTOMER_IMAGE_RETENTION_DAYS ?? 7) || 7;
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const filter: any = {
+        status: OrderStatus.DELIVERED,
+        imagesDeletedAt: { $exists: false },
+        $or: [
+          { deliveredAt: { $lte: cutoff } },
+          { deliveredAt: { $exists: false }, updatedAt: { $lte: cutoff } },
+        ],
+      };
+      const orders = await this.orderModel.find(filter).limit(50).exec();
+      for (const order of orders) {
+        const { deleted } = await this.purgeCustomerImages(order);
+        if (deleted) this.logger.log(`[Orders] Removed ${deleted} customer photo(s) of ${order.orderId}`);
+      }
+    } catch (err) {
+      this.logger.error(`[Orders] Customer photo clean-up failed: ${err}`);
+    }
+  }
+
+  /** Reads a customer photo (our bucket, `orders/` folder only) so the dashboard can download it without CORS problems. */
+  async fetchCustomerPhoto(url: string): Promise<{ buffer: Buffer; contentType: string }> {
+    if (!this.customerImageKey(url)) {
+      throw new BadRequestException('Not a customer photo.');
+    }
+    try {
+      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
+      return {
+        buffer: Buffer.from(response.data),
+        contentType: String(response.headers['content-type'] || 'application/octet-stream'),
+      };
+    } catch {
+      throw new NotFoundException('Photo not found. It may have been deleted.');
+    }
+  }
+
+  /** Manual clean-up from the dashboard. Only delivered orders. */
+  async deleteCustomerImages(id: string): Promise<any> {
+    let order: OrderDocument | null = null;
+    if (Types.ObjectId.isValid(id)) order = await this.orderModel.findById(id).exec();
+    if (!order) order = await this.orderModel.findOne({ orderId: id }).exec();
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (this.normalizeOrderStatus(order.status) !== 'DELIVERED') {
+      throw new BadRequestException('Customer photos can be deleted only after the order is delivered.');
+    }
+
+    const { deleted, failed } = await this.purgeCustomerImages(order);
+    if (failed > 0) {
+      throw new BadRequestException(`${failed} photo(s) could not be deleted. Please try again.`);
+    }
+    const [enriched] = await this.attachItemSkus([order.toObject()]);
+    return { message: `${deleted} photo(s) deleted`, deleted, data: enriched };
+  }
 
   private normalizeCustomerId(value?: string | null): string {
     return String(value ?? '')
@@ -318,6 +448,7 @@ export class OrdersService {
       customerName: dto.customerName ?? '',
       phone: dto.phone,
       shippingAddress: dto.shippingAddress ?? '',
+      manual: dto.orderSource === 'direct',
     });
 
     try {
@@ -581,7 +712,15 @@ export class OrdersService {
     }
 
     order.status = nextStatus as any;
-    order.adminNote = dto.adminNote;
+    if (nextStatus === 'DELIVERED' && previousStatus !== 'DELIVERED') {
+      order.deliveredAt = new Date();
+    }
+    if (dto.adminNote !== undefined) order.adminNote = dto.adminNote;
+    if (dto.paymentStatus) order.paymentStatus = dto.paymentStatus;
+    if (dto.customerName !== undefined) order.customerName = dto.customerName;
+    if (dto.email !== undefined) order.email = dto.email;
+    if (dto.phone !== undefined) order.phone = dto.phone;
+    if (dto.shippingAddress !== undefined) order.shippingAddress = dto.shippingAddress;
 
     await order.save();
 

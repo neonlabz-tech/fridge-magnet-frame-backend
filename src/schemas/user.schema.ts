@@ -50,6 +50,15 @@ export class User extends Document {
 
   @Prop({ type: String, trim: true, default: '' })
   customerAddress?: string;
+
+  // How the customer record was created. Missing (older records) is treated as 'website'.
+  @Prop({ type: String, enum: ['website', 'manual'] })
+  registrationType?: 'website' | 'manual';
+
+  // Set to true when the customer confirms their email (activation link).
+  // Intentionally has no default so older records can be told apart.
+  @Prop({ type: Boolean })
+  emailVerified?: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

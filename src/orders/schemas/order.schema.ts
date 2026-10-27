@@ -40,11 +40,22 @@ export class Order {
   @Prop({ default: OrderStatus.PENDING })
   status!: OrderStatus;
 
+  /** When the order was marked DELIVERED (starts the customer-photo retention period). */
+  @Prop()
+  deliveredAt?: Date;
+
+  /** Set once the customer's uploaded photos were removed from storage. */
+  @Prop()
+  imagesDeletedAt?: Date;
+
   @Prop()
   adminNote?: string;
 
   @Prop()
   paymentMethod?: string;
+
+  @Prop({ default: 'pending', enum: ['paid', 'pending', 'failed', 'refunded'] })
+  paymentStatus!: string;
 
   @Prop()
   shippingAddress?: string;

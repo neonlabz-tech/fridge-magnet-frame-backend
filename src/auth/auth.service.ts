@@ -45,10 +45,8 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
 
-    console.log("login:", loginDto);
     // Check Admin collection first
     const admin = await this.adminModel.findOne({ email: loginDto.email.toLowerCase() });
-    console.log("admin:", admin);
     if (admin) {
       const passwordValid = await bcrypt.compare(loginDto.password, admin.password);
       if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
@@ -180,6 +178,7 @@ export class AuthService {
     }
 
     user.isActive = true;
+    user.emailVerified = true;
     user.activationToken = undefined;
     user.activationExpires = undefined;
     await user.save();

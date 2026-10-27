@@ -7,6 +7,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User } from '../schemas/user.schema';
+import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -14,7 +15,50 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectModel(User.name) private userModel: Model<User>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
+  ) {}
+
+  // ── Order statistics per customer (matched by e-mail) ─────────────────────
+
+  private async orderStatsByEmail(emails: string[]) {
+    const stats = new Map<string, { totalOrders: number; totalAmount: number; activeOrders: number }>();
+    const list = [...new Set(emails.filter(Boolean).map((e) => e.trim().toLowerCase()))];
+    if (!list.length) return stats;
+
+    const rows: { _id: string; totalOrders: number; totalAmount: number; activeOrders: number }[] =
+      await this.orderModel.aggregate([
+        { $addFields: { _email: { $toLower: '$email' }, _status: { $toUpper: '$status' } } },
+        { $match: { _email: { $in: list } } },
+        {
+          $group: {
+            _id: '$_email',
+            totalOrders: { $sum: 1 },
+            totalAmount: {
+              $sum: { $cond: [{ $eq: ['$_status', 'CANCELED'] }, 0, { $ifNull: ['$totalValue', 0] }] },
+            },
+            activeOrders: {
+              $sum: { $cond: [{ $in: ['$_status', ['PENDING', 'PROCESSING', 'SHIPPED']] }, 1, 0] },
+            },
+          },
+        },
+      ]);
+
+    rows.forEach((r) =>
+      stats.set(r._id, {
+        totalOrders: r.totalOrders,
+        totalAmount: r.totalAmount,
+        activeOrders: r.activeOrders,
+      }),
+    );
+    return stats;
+  }
+
+  private async serializeCustomerWithStats(user: any) {
+    const stats = await this.orderStatsByEmail([user?.email ?? '']);
+    return this.serializeCustomer(user, stats.get(String(user?.email ?? '').toLowerCase()));
+  }
 
   // ── Core auth methods ─────────────────────────────────────────────────────
 
@@ -27,6 +71,8 @@ export class UsersService {
       phoneNumber?: string;
       customerAddress?: string;
       customerId?: string;
+      registrationType?: 'website' | 'manual';
+      emailVerified?: boolean;
     },
   ): Promise<User> {
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -183,7 +229,19 @@ export class UsersService {
 
   // ── Customer serialization & phone helpers ────────────────────────────────
 
-  private serializeCustomer(user: any) {
+  private serializeCustomer(
+    user: any,
+    stats?: { totalOrders: number; totalAmount: number; activeOrders: number },
+  ) {
+    // Staff-created customers are 'manual' and never verified; website sign-ups are
+    // verified once the activation link was used (older records: no activation token left).
+    const registrationType: 'website' | 'manual' =
+      user.registrationType === 'manual' ? 'manual' : 'website';
+    const emailVerified =
+      registrationType === 'manual'
+        ? false
+        : (user.emailVerified ?? !user.activationToken);
+
     return {
       _id: user._id,
       recordId: user._id,
@@ -195,6 +253,12 @@ export class UsersService {
       isActive: user.isActive === true,
       createdAt: user.createdAt,
       source: 'user' as const,
+      registrationType,
+      type: registrationType === 'manual' ? 'Manual' : 'Website',
+      emailVerified,
+      totalOrders: stats?.totalOrders ?? 0,
+      totalAmount: stats?.totalAmount ?? 0,
+      activeOrders: stats?.activeOrders ?? 0,
     };
   }
 
@@ -224,6 +288,8 @@ export class UsersService {
       phoneNumber: dto.phoneNumber,
       customerAddress: dto.customerAddress,
       isActive: true,
+      registrationType: 'manual',
+      emailVerified: false,
     } as any);
 
     await this.generateAndAssignCustomerId((user._id as any).toString());
@@ -234,7 +300,7 @@ export class UsersService {
 
   async findCustomerByEmailAddress(email: string): Promise<any | null> {
     const user = await this.findCustomerByEmail(email);
-    return user ? this.serializeCustomer(user) : null;
+    return user ? this.serializeCustomerWithStats(user) : null;
   }
 
   async findAllCustomers(
@@ -252,9 +318,11 @@ export class UsersService {
     const activeTotal = allUsers.filter((user) => user.isActive === true).length;
     const total = allUsers.length;
     const skip = (page - 1) * limit;
-    const data = allUsers
-      .slice(skip, skip + limit)
-      .map((u) => this.serializeCustomer(u));
+    const pageUsers = allUsers.slice(skip, skip + limit);
+    const stats = await this.orderStatsByEmail(pageUsers.map((u) => u.email));
+    const data = pageUsers.map((u) =>
+      this.serializeCustomer(u, stats.get(String(u.email ?? '').toLowerCase())),
+    );
 
     return {
       data,
@@ -269,7 +337,7 @@ export class UsersService {
   async findOneCustomer(id: string): Promise<any> {
     const user = await this.findCustomerByIdOrCustomerId(id);
     if (!user) throw new NotFoundException(`Customer with ID "${id}" not found`);
-    return this.serializeCustomer(user);
+    return this.serializeCustomerWithStats(user);
   }
 
   async updateCustomer(id: string, dto: UpdateCustomerDto): Promise<any> {
@@ -338,10 +406,23 @@ export class UsersService {
     const user = await this.findByActivationToken(token);
     if (!user) throw new UnauthorizedException('Invalid activation token');
 
-    const updated = await this.updateCustomerFields(
-      (user._id as any).toString(),
-      { isActive: true },
-    );
+    if (user.activationExpires && user.activationExpires < new Date()) {
+      throw new UnauthorizedException('This activation link has expired.');
+    }
+
+    // Clicking the mail link is what verifies the address: activate, mark verified and
+    // burn the one-time token so the link cannot be used again.
+    const updated = await this.userModel
+      .findByIdAndUpdate(
+        user._id,
+        {
+          $set: { isActive: true, emailVerified: true },
+          $unset: { activationToken: '', activationExpires: '' },
+        },
+        { new: true },
+      )
+      .select('-password')
+      .exec();
     return this.serializeCustomer(updated);
 
   }
@@ -368,6 +449,7 @@ export class UsersService {
     customerName: string;
     phone?: string;
     shippingAddress: string;
+    manual?: boolean;
   }): Promise<any> {
     const email = order.email.trim().toLowerCase();
     const phoneNumber = this.normalisePhone(order.phone);
@@ -375,10 +457,9 @@ export class UsersService {
     const user = await this.findByEmail(email);
 
     if (user) {
-      const fields: Record<string, any> = {
-        phoneNumber,
-        customerAddress: order.shippingAddress.trim(),
-      };
+      const fields: Record<string, any> = { phoneNumber };
+      // Direct (staff) orders have no delivery address - do not wipe the saved one.
+      if (order.shippingAddress.trim()) fields.customerAddress = order.shippingAddress.trim();
       if (!user.fullName && order.customerName?.trim()) {
         fields.fullName = order.customerName.trim();
       }
@@ -401,6 +482,7 @@ export class UsersService {
         phoneNumber,
         customerAddress: order.shippingAddress.trim(),
         isActive: true,
+        ...(order.manual ? { registrationType: 'manual', emailVerified: false } : {}),
       } as any,
     );
 
