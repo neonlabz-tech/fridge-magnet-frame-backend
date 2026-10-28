@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
 export class PersonalizationLabelDto {
@@ -27,6 +27,20 @@ export class CreateProductDto {
   @Type(() => Number)
   @IsNumber()
   imagecount!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  manufactureCost?: number;
+
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : value === true || value === 'true',
+  )
+  @IsBoolean()
+  isActive?: boolean;
 
   @IsString()
   description!: string;

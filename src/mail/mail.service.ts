@@ -26,7 +26,8 @@ export class MailService implements OnModuleInit {
       config.get<string>('CONTACT_EMAIL') ||
       ''
     ).trim();
-    this.resend = new Resend(apiKey);
+    // Resend throws on an empty key; a placeholder keeps the app booting with email disabled.
+    this.resend = new Resend(apiKey || 're_email_disabled');
 
     if (!apiKey || !this.fromAddress) {
       this.logger.warn(

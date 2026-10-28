@@ -19,6 +19,12 @@ import { MailModule } from './mail/mail.module';
 import { ContactModule } from './contact/contact.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { Admin, AdminSchema } from './schemas/admin.schema';
+import { InventoryModule } from './inventory/inventory.module';
+import { FinanceModule } from './finance/finance.module';
+import { DeliveriesModule } from './deliveries/deliveries.module';
+import { LeadsModule } from './leads/leads.module';
+import { TeamModule } from './team/team.module';
+import { MaterialsModule } from './materials/materials.module';
 
 const logger = new Logger('MongoDB');
 
@@ -53,6 +59,12 @@ const logger = new Logger('MongoDB');
     MailModule,
     ContactModule,
     FeedbackModule,
+    InventoryModule,
+    FinanceModule,
+    DeliveriesModule,
+    LeadsModule,
+    TeamModule,
+    MaterialsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

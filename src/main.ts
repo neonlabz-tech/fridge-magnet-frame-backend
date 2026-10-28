@@ -17,7 +17,13 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // The Next.js dev proxy forwards the browser's localhost Origin header.
+      const isLocalDev =
+        process.env.NODE_ENV !== 'production' &&
+        !!origin &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
+      if (!origin || isLocalDev || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));

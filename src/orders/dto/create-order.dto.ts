@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsEmail,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -82,6 +83,15 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   paymentMethod?: string;
+
+  @IsOptional()
+  @IsIn(['paid', 'pending', 'failed', 'refunded'])
+  paymentStatus?: string;
+
+  // 'direct' = order entered by staff in the dashboard (Direct Order).
+  @IsOptional()
+  @IsString()
+  orderSource?: string;
 
   @IsOptional()
   @IsArray()
