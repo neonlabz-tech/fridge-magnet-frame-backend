@@ -34,6 +34,23 @@ export class OrdersController {
     return this.ordersService.findAll(status, search);
   }
 
+  /** Streams a customer photo as a file download (the browser cannot fetch the R2 URL directly because of CORS). */
+  @Get('photos/download')
+  async downloadPhoto(
+    @Query('url') url: string,
+    @Query('name') name: string,
+    @Res() res: Response,
+  ) {
+    const photo = await this.ordersService.fetchCustomerPhoto(url);
+    const safeName = String(name || 'photo').replace(/[^\w.\-]+/g, '_');
+    res.set({
+      'Content-Type': photo.contentType,
+      'Content-Disposition': `attachment; filename="${safeName}"`,
+      'Cache-Control': 'no-store',
+    });
+    res.send(photo.buffer);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<any> {
     return this.ordersService.findOne(id);
@@ -45,6 +62,12 @@ export class OrdersController {
     @Body() dto: UpdateOrderStatusDto,
   ) {
     return this.ordersService.updateStatus(id, dto);
+  }
+
+  /** Removes the customer's uploaded photos from storage (delivered orders only). */
+  @Delete(':id/customer-images')
+  deleteCustomerImages(@Param('id') id: string) {
+    return this.ordersService.deleteCustomerImages(id);
   }
 
   @Delete(':id')

@@ -9,12 +9,16 @@ import { PassportModule } from '@nestjs/passport';
 import { CloudflareR2Module } from '../cloudflareR2/cloudflareR2.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Admin, AdminSchema } from '../schemas/admin.schema';
+import { TeamMember, TeamMemberSchema } from '../team/schemas/team.schema';
 
 @Module({
   imports: [
     ConfigModule,
     PassportModule,
-    MongooseModule.forFeature([{ name: Admin.name, schema: AdminSchema }]),
+    MongooseModule.forFeature([
+      { name: Admin.name, schema: AdminSchema },
+      { name: TeamMember.name, schema: TeamMemberSchema },
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

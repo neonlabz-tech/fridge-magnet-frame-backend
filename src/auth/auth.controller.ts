@@ -37,6 +37,13 @@ export class AuthController {
 		return this.authService.login(loginDto);
 	}
 
+	/** Tokens are stateless JWTs, so logout just acknowledges; the client drops the token. */
+	@Post('logout')
+	@HttpCode(200)
+	logout() {
+		return { success: true, message: 'Logged out successfully' };
+	}
+
 	@Post('forgot-password')
 	@HttpCode(200)
 	async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {

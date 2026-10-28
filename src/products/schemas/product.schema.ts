@@ -26,6 +26,14 @@ export class Product {
   @Prop({ required: true })
   imagecount!: number;
 
+  // Material/production cost of one unit (LKR).
+  @Prop({ default: 0, min: 0 })
+  manufactureCost!: number;
+
+  // Manual enable/disable switch. A product with 0 stock is treated as disabled by the dashboard.
+  @Prop({ default: true })
+  isActive!: boolean;
+
   @Prop({ required: true })
   description!: string;
 
