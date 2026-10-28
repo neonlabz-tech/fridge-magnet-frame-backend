@@ -128,7 +128,16 @@ export class UsersService {
   async updateProfile(
     id: string,
     update: Partial<
-      Pick<User, 'fullName' | 'email' | 'bio' | 'avatar' | 'twoFactorEnabled'>
+      Pick<
+        User,
+        | 'fullName'
+        | 'email'
+        | 'bio'
+        | 'avatar'
+        | 'twoFactorEnabled'
+        | 'phoneNumber'
+        | 'customerAddress'
+      >
     >,
   ): Promise<User | null> {
     return this.userModel
@@ -406,25 +415,45 @@ export class UsersService {
     const user = await this.findByActivationToken(token);
     if (!user) throw new UnauthorizedException('Invalid activation token');
 
+    // Link used again after activation: nothing changes, the account stays activated.
+    if (user.emailVerified === true) {
+      if (user.isActive !== true) {
+        // Disabled by an admin: an old mail link must not switch the account back on.
+        throw new UnauthorizedException('This account is disabled. Please contact support.');
+      }
+      if (!user.customerId) {
+        await this.generateAndAssignCustomerId((user._id as any).toString());
+      }
+      const current = await this.findById((user._id as any).toString());
+      return {
+        ...this.serializeCustomer(current ?? user),
+        alreadyActivated: true,
+      };
+    }
+
     if (user.activationExpires && user.activationExpires < new Date()) {
       throw new UnauthorizedException('This activation link has expired.');
     }
 
-    // Clicking the mail link is what verifies the address: activate, mark verified and
-    // burn the one-time token so the link cannot be used again.
+    // Clicking the mail link is what verifies the address. The hashed token is kept so a
+    // second click is answered with "already activated" instead of "invalid link".
     const updated = await this.userModel
       .findByIdAndUpdate(
         user._id,
         {
           $set: { isActive: true, emailVerified: true },
-          $unset: { activationToken: '', activationExpires: '' },
         },
         { new: true },
       )
       .select('-password')
       .exec();
-    return this.serializeCustomer(updated);
 
+    // Give the newly verified customer their #CUST-xxxx id right away.
+    if (!user.customerId) {
+      await this.generateAndAssignCustomerId((user._id as any).toString());
+    }
+    const fresh = await this.findById((user._id as any).toString());
+    return this.serializeCustomer(fresh ?? updated);
   }
 
   // ── Methods called by AuthService / OrdersService ─────────────────────────

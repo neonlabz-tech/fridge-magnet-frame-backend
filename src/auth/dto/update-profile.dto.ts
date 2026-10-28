@@ -20,6 +20,16 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
+  phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  customerAddress?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(1000)
   bio?: string;
 

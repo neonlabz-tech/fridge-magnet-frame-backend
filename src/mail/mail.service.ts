@@ -273,6 +273,7 @@ export class MailService implements OnModuleInit {
     subtotal: number;
     deliveryFee: number;
     paymentMethod?: string;
+    paymentSlipUrl?: string;
     shippingAddress?: string;
     district?: string;
     items?: {
@@ -361,7 +362,12 @@ export class MailService implements OnModuleInit {
           <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Shipping Address</td><td style="padding:6px 12px;color:#434652">${safeAddress}</td></tr>
           <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">District</td><td style="padding:6px 12px;color:#434652">${safeDistrict}</td></tr>
           <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Total Items</td><td style="padding:6px 12px;color:#434652">${Number(order.qty || 0)}</td></tr>
-          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Payment Method</td><td style="padding:6px 12px;color:#434652">${escapeHtml(order.paymentMethod || '—')}</td></tr>
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Payment Method</td><td style="padding:6px 12px;color:#434652">${escapeHtml(order.paymentMethod || '—')}</td></tr>${
+            order.paymentSlipUrl && /^https?:\/\//i.test(order.paymentSlipUrl)
+              ? `
+          <tr><td style="padding:6px 12px;font-weight:bold;color:#002B73;white-space:nowrap">Bank Slip</td><td style="padding:6px 12px"><a href="${escapeHtml(order.paymentSlipUrl)}" style="color:#15479C">View uploaded receipt</a></td></tr>`
+              : ''
+          }
         </table>
         <h3 style="color:#002B73;margin-bottom:4px">Items</h3>
         <table style="border-collapse:collapse;width:100%;margin-bottom:16px">

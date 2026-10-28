@@ -14,6 +14,10 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
 import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
+import {
+  Transaction,
+  TransactionDocument,
+} from '../finance/schemas/transaction.schema';
 
 import {
   Product,
@@ -46,11 +50,106 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
 
+    @InjectModel(Transaction.name)
+    private transactionModel: Model<TransactionDocument>,
+
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
     private readonly pdfGeneratorService: PdfGeneratorService,
     private readonly cloudflareR2Service: CloudflareR2Service,
   ) {}
+
+  /* ---------- Finance: paid orders become income ---------- */
+
+  private incomeTxId(orderId: string): string {
+    return `ORDINC-${String(orderId).replace(/^#+/, '')}`;
+  }
+
+  private incomeMethod(method?: string): 'Cash' | 'Bank Transfer' | 'Card Payment' {
+    const m = String(method ?? '').toLowerCase();
+    if (m.includes('bank')) return 'Bank Transfer';
+    if (m.includes('card')) return 'Card Payment';
+    return 'Cash'; // cod / cash / unknown
+  }
+
+  /**
+   * Keeps one automatic Finance income record per order:
+   * paid (and not cancelled) -> record exists, otherwise -> record removed.
+   */
+  private async syncOrderIncome(order: {
+    orderId: string;
+    customerName?: string;
+    totalValue?: number;
+    paymentMethod?: string;
+    paymentStatus?: string;
+    status?: string;
+  }): Promise<void> {
+    try {
+      const id = this.incomeTxId(order.orderId);
+      const paid =
+        String(order.paymentStatus ?? '').toLowerCase() === 'paid' &&
+        String(order.status ?? '').toUpperCase() !== 'CANCELED' &&
+        Number(order.totalValue ?? 0) > 0;
+
+      if (!paid) {
+        await this.transactionModel.deleteOne({ id }).exec();
+        return;
+      }
+
+      const existing = await this.transactionModel.findOne({ id }).exec();
+      const fields = {
+        kind: 'income',
+        ref: order.orderId,
+        party: order.customerName ?? '',
+        note: 'Order payment (auto)',
+        amount: Number(order.totalValue ?? 0),
+        method: this.incomeMethod(order.paymentMethod),
+        status: 'completed',
+      };
+
+      if (existing) {
+        // keep the original date, refresh the rest (amount/method can change)
+        await this.transactionModel.updateOne({ id }, { $set: fields }).exec();
+        return;
+      }
+
+      await this.transactionModel.create({
+        id,
+        date: new Date().toISOString().slice(0, 10),
+        createdBy: 'admin',
+        ...fields,
+      });
+    } catch (err) {
+      this.logger.error(
+        `[Orders] Could not sync finance income for ${order.orderId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /** Creates income records for every order that is already paid (skips ones that already have an income with the same ref). */
+  async backfillOrderIncomes(): Promise<{ created: number; skipped: number }> {
+    const orders = await this.orderModel
+      .find({ paymentStatus: 'paid', status: { $ne: OrderStatus.CANCELED } })
+      .exec();
+    let created = 0;
+    let skipped = 0;
+
+    for (const o of orders) {
+      const id = this.incomeTxId(o.orderId);
+      const already = await this.transactionModel
+        .findOne({ $or: [{ id }, { kind: 'income', ref: o.orderId }] })
+        .exec();
+      if (already) {
+        skipped += 1;
+        continue;
+      }
+      await this.syncOrderIncome(o.toObject());
+      created += 1;
+    }
+    return { created, skipped };
+  }
 
   /* ---------- customer photo clean-up ---------- */
 
@@ -286,6 +385,57 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Reverse of restoreStockForOrder: used when a cancelled order is re-opened. */
+  private async deductStockForOrder(order: {
+    items?: Array<{
+      productId?: string;
+      quantity?: number;
+    }>;
+  }): Promise<void> {
+    if (!order?.items?.length) {
+      return;
+    }
+
+    for (const item of order.items) {
+      if (!item.productId) {
+        continue;
+      }
+
+      const quantity = Math.max(Number(item.quantity || 0), 0);
+      if (quantity === 0) {
+        continue;
+      }
+
+      const product = Types.ObjectId.isValid(item.productId)
+        ? await this.productModel.findById(item.productId)
+        : await this.productModel.findOne({
+            productId: item.productId,
+          });
+
+      if (!product) {
+        continue;
+      }
+
+      const previousStock = Number(product.stock || 0);
+      const newStock = Math.max(previousStock - quantity, 0);
+
+      product.stock = newStock;
+      product.status = this.getStatusFromStock(newStock);
+      product.updatedAt = new Date();
+
+      if (Array.isArray(product.stockHistory)) {
+        product.stockHistory.push({
+          previousStock,
+          newStock,
+          changedBy: 'System (Order Re-opened)',
+          changedAt: new Date(),
+        });
+      }
+
+      await product.save();
+    }
+  }
+
   private async attachItemSkus(
     orders: Record<string, any>[],
   ): Promise<Record<string, any>[]> {
@@ -370,7 +520,38 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
+  /** Payment rules for orders placed from the website. */
+  private validateWebsitePayment(dto: CreateOrderDto): void {
+    if (dto.orderSource === 'direct') {
+      return;
+    }
+
+    const method = String(dto.paymentMethod ?? '').toLowerCase();
+
+    if (method === 'cod') {
+      if (!dto.shippingAddress?.toLowerCase().includes('jaffna')) {
+        throw new BadRequestException(
+          'Cash on Delivery is available only for Jaffna addresses.',
+        );
+      }
+    } else if (method === 'bank_transfer') {
+      if (!dto.paymentSlipUrl?.trim()) {
+        throw new BadRequestException(
+          'Please upload your bank transfer receipt.',
+        );
+      }
+    } else if (method === 'card') {
+      throw new BadRequestException(
+        'Card payment is currently unavailable.',
+      );
+    } else {
+      throw new BadRequestException('Please choose a valid payment method.');
+    }
+  }
+
   async create(dto: CreateOrderDto): Promise<any> {
+    this.validateWebsitePayment(dto);
+
     if (dto.items?.length) {
       for (const item of dto.items) {
         if (!item.productId) {
@@ -388,6 +569,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         if (!product) {
           throw new NotFoundException(
             'Product not found',
+          );
+        }
+
+        if (
+          dto.orderSource !== 'direct' &&
+          (product as any).isActive === false
+        ) {
+          throw new BadRequestException(
+            `${product.productName} is currently unavailable`,
           );
         }
 
@@ -430,11 +620,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         sum + Number(item.price || 0) * Number(item.quantity || 1),
       0,
     );
+    // Flat delivery fee for every address. Staff-entered (direct) orders may
+    // override it; website orders always use the flat fee.
     const deliveryFee =
-      dto.paymentMethod === 'cod' &&
-      dto.shippingAddress?.toLowerCase().includes('jaffna')
-        ? 300
-        : 0;
+      dto.orderSource === 'direct' && typeof dto.deliveryFee === 'number'
+        ? dto.deliveryFee
+        : 300;
 
     const order = await this.orderModel.create({
       ...dto,
@@ -442,6 +633,8 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       deliveryFee,
       customerId: resolvedCustomerId,
     });
+
+    await this.syncOrderIncome(order.toObject());
 
     await this.usersService.updateFromOrder({
       email: dto.email ?? '',
@@ -464,6 +657,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
             subtotal,
             deliveryFee,
             paymentMethod: order.paymentMethod,
+            paymentSlipUrl: order.paymentSlipUrl,
             shippingAddress: order.shippingAddress,
             district: order.district,
             items: order.items,
@@ -554,6 +748,41 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     return this.attachItemSkus(
       ordersWithCustomerId,
+    );
+  }
+
+  /**
+   * Orders placed by the logged-in customer (matched by account email).
+   */
+  async findForUser(
+    userId: string,
+    orderId?: string,
+  ): Promise<Record<string, any>[]> {
+    const user = await this.usersService.findById(userId);
+
+    if (!user?.email) {
+      return [];
+    }
+
+    const escapedEmail = user.email
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const filter: Record<string, any> = {
+      email: { $regex: `^${escapedEmail}$`, $options: 'i' },
+    };
+
+    if (orderId) {
+      filter.orderId = orderId;
+    }
+
+    const orders: OrderDocument[] = await this.orderModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return this.attachItemSkus(
+      orders.map((order) => order.toObject() as Record<string, any>),
     );
   }
 
@@ -696,7 +925,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     const nextRank =
       this.statusRank[nextStatus] ?? 0;
 
-    if (nextRank < currentRank) {
+    // A cancelled order may be re-opened (e.g. cancelled by mistake); every
+    // other backward move is still rejected.
+    if (nextRank < currentRank && previousStatus !== 'CANCELED') {
       throw new BadRequestException(
         `Order status cannot move back from ${order.status} to ${dto.status}`,
       );
@@ -707,6 +938,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       nextStatus === 'CANCELED'
     ) {
       await this.restoreStockForOrder(
+        order.toObject(),
+      );
+    }
+
+    if (
+      previousStatus === 'CANCELED' &&
+      nextStatus !== 'CANCELED'
+    ) {
+      await this.deductStockForOrder(
         order.toObject(),
       );
     }
@@ -723,6 +963,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     if (dto.shippingAddress !== undefined) order.shippingAddress = dto.shippingAddress;
 
     await order.save();
+    await this.syncOrderIncome(order.toObject());
 
     const plainOrder = order.toObject();
 
@@ -812,6 +1053,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     await this.orderModel
       .deleteOne({ _id: order._id })
+      .exec();
+    await this.transactionModel
+      .deleteOne({ id: this.incomeTxId(order.orderId) })
       .exec();
 
     return {
@@ -962,6 +1206,8 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         (orderObj as any).createdAt ||
         new Date(),
       adminNote: orderObj.adminNote,
+      paymentMethod: orderObj.paymentMethod,
+      paymentStatus: orderObj.paymentStatus,
     };
 
     try {
