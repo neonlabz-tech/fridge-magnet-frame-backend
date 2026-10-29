@@ -13,12 +13,14 @@ const deliveries_controller_1 = require("./deliveries.controller");
 const deliveries_service_1 = require("./deliveries.service");
 const delivery_schema_1 = require("./schemas/delivery.schema");
 const order_schema_1 = require("../orders/schemas/order.schema");
+const orders_module_1 = require("../orders/orders.module");
 let DeliveriesModule = class DeliveriesModule {
 };
 exports.DeliveriesModule = DeliveriesModule;
 exports.DeliveriesModule = DeliveriesModule = __decorate([
     (0, common_1.Module)({
         imports: [
+            orders_module_1.OrdersModule,
             mongoose_1.MongooseModule.forFeature([
                 { name: delivery_schema_1.Delivery.name, schema: delivery_schema_1.DeliverySchema },
                 { name: order_schema_1.Order.name, schema: order_schema_1.OrderSchema },

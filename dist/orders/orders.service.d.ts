@@ -18,7 +18,6 @@ export declare class OrdersService implements OnModuleInit, OnModuleDestroy {
     private readonly pdfGeneratorService;
     private readonly cloudflareR2Service;
     private readonly logger;
-    private readonly statusRank;
     constructor(orderModel: Model<OrderDocument>, productModel: Model<ProductDocument>, transactionModel: Model<TransactionDocument>, usersService: UsersService, mailService: MailService, pdfGeneratorService: PdfGeneratorService, cloudflareR2Service: CloudflareR2Service);
     private incomeTxId;
     private incomeMethod;

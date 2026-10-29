@@ -35,14 +35,6 @@ import {
 export class OrdersService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersService.name);
 
-  private readonly statusRank: Record<string, number> = {
-    PENDING: 0,
-    PROCESSING: 1,
-    SHIPPED: 2,
-    DELIVERED: 3,
-    CANCELED: 4,
-  };
-
   constructor(
     @InjectModel(Order.name)
     private orderModel: Model<OrderDocument>,
@@ -919,19 +911,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     const nextStatus =
       this.normalizeOrderStatus(dto.status);
 
-    const currentRank =
-      this.statusRank[previousStatus] ?? 0;
-
-    const nextRank =
-      this.statusRank[nextStatus] ?? 0;
-
-    // A cancelled order may be re-opened (e.g. cancelled by mistake); every
-    // other backward move is still rejected.
-    if (nextRank < currentRank && previousStatus !== 'CANCELED') {
-      throw new BadRequestException(
-        `Order status cannot move back from ${order.status} to ${dto.status}`,
-      );
-    }
+    // Admins may move an order to any status (including backwards) to fix mistakes.
 
     if (
       previousStatus !== 'CANCELED' &&

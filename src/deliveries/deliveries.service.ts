@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Delivery, DeliveryDocument } from './schemas/delivery.schema';
@@ -9,6 +9,7 @@ import {
   UpdateDeliveryDto,
 } from './dto/delivery.dto';
 import { escapeRegex } from '../common/utils/clean-json';
+import { OrdersService } from '../orders/orders.service';
 
 const FIRST_SEQUENCE = 260913;
 
@@ -35,7 +36,45 @@ export class DeliveriesService {
     private readonly model: Model<DeliveryDocument>,
     @InjectModel(Order.name)
     private readonly orderModel: Model<OrderDocument>,
+    private readonly ordersService: OrdersService,
   ) {}
+
+  private readonly logger = new Logger(DeliveriesService.name);
+
+  /**
+   * Keeps the order in step with its delivery: Delivered -> order Delivered + Paid,
+   * In Transit / Pending -> order Shipped (a COD order that was marked paid by the
+   * delivery goes back to pending payment). Income is synced by the orders service.
+   */
+  private async syncOrderFromDelivery(orderId?: string, status?: string) {
+    if (!orderId || !status) return;
+    try {
+      const bare = orderId.replace(/^#/, '');
+      const order =
+        (await this.orderModel.findOne({ orderId }).exec()) ||
+        (await this.orderModel.findOne({ orderId: bare }).exec()) ||
+        (await this.orderModel.findOne({ orderId: `#${bare}` }).exec());
+      if (!order || order.status === OrderStatus.CANCELED) return;
+
+      if (status === 'delivered') {
+        if (order.status === OrderStatus.DELIVERED && order.paymentStatus === 'paid') return;
+        await this.ordersService.updateStatus(String(order._id), {
+          status: OrderStatus.DELIVERED,
+          paymentStatus: 'paid',
+        } as any);
+      } else if (status === 'in-transit' || status === 'pending') {
+        if (order.status === OrderStatus.SHIPPED) return;
+        const wasDelivered = order.status === OrderStatus.DELIVERED;
+        const cod = String(order.paymentMethod ?? '').toLowerCase().includes('cod');
+        await this.ordersService.updateStatus(String(order._id), {
+          status: OrderStatus.SHIPPED,
+          ...(wasDelivered && cod ? { paymentStatus: 'pending' } : {}),
+        } as any);
+      }
+    } catch (err) {
+      this.logger.error(`Could not sync order ${orderId} with delivery status ${status}: ${(err as Error).message}`);
+    }
+  }
 
   options() {
     return { drivers: DRIVERS, timeSlots: TIME_SLOTS };
@@ -70,7 +109,7 @@ export class DeliveriesService {
     return { data, total: data.length };
   }
 
-  /** Orders that still need a delivery (not cancelled/delivered and not already dispatched). */
+  /** Orders that still need a delivery (status SHIPPED and not already dispatched). */
   async dispatchOrders() {
     const dispatched = await this.model
       .find({ status: { $ne: 'returned' } }, 'orderId')
@@ -78,7 +117,7 @@ export class DeliveriesService {
     const taken = new Set(dispatched.map((d) => d.orderId));
 
     const orders = await this.orderModel
-      .find({ status: { $in: [OrderStatus.PENDING, OrderStatus.PROCESSING] } })
+      .find({ status: OrderStatus.SHIPPED })
       .sort({ createdAt: -1 })
       .exec();
 
@@ -86,7 +125,7 @@ export class DeliveriesService {
       .filter((o) => !taken.has(o.orderId))
       .map((o) => ({
         orderId: o.orderId,
-        badge: o.status === OrderStatus.PROCESSING ? 'Ready to Dispatch' : 'Pending Pack',
+        badge: 'Ready to Dispatch',
         total: o.totalValue,
         customer: o.customerName,
         phone: o.phone ?? '',
@@ -107,6 +146,7 @@ export class DeliveriesService {
     const taken = dto.id ? await this.model.exists({ id: dto.id }) : true;
     const id = dto.id && !taken ? dto.id : await this.nextId();
     const delivery = await this.model.create({ ...dto, id });
+    await this.syncOrderFromDelivery(delivery.orderId, delivery.status);
     return { message: 'Delivery created successfully', data: delivery };
   }
 
@@ -115,6 +155,7 @@ export class DeliveriesService {
       .findOneAndUpdate({ id }, { $set: dto }, { new: true, runValidators: true })
       .exec();
     if (!delivery) throw new NotFoundException(`Delivery ${id} not found`);
+    await this.syncOrderFromDelivery(delivery.orderId, delivery.status);
     return { message: 'Delivery updated successfully', data: delivery };
   }
 
@@ -126,6 +167,8 @@ export class DeliveriesService {
     const result = await this.model
       .updateMany({ id: { $in: dto.ids } }, { $set: { status: dto.status } })
       .exec();
+    const list = await this.model.find({ id: { $in: dto.ids } }, 'orderId').exec();
+    for (const d of list) await this.syncOrderFromDelivery(d.orderId, dto.status);
     return {
       message: 'Deliveries updated successfully',
       matched: result.matchedCount,

@@ -35,6 +35,7 @@ exports.OrdersModule = OrdersModule = __decorate([
         ],
         controllers: [orders_controller_1.OrdersController],
         providers: [orders_service_1.OrdersService, pdf_generator_service_1.PdfGeneratorService],
+        exports: [orders_service_1.OrdersService],
     })
 ], OrdersModule);
 //# sourceMappingURL=orders.module.js.map

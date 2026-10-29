@@ -38,13 +38,6 @@ let OrdersService = OrdersService_1 = class OrdersService {
         this.pdfGeneratorService = pdfGeneratorService;
         this.cloudflareR2Service = cloudflareR2Service;
         this.logger = new common_1.Logger(OrdersService_1.name);
-        this.statusRank = {
-            PENDING: 0,
-            PROCESSING: 1,
-            SHIPPED: 2,
-            DELIVERED: 3,
-            CANCELED: 4,
-        };
     }
     incomeTxId(orderId) {
         return `ORDINC-${String(orderId).replace(/^#+/, '')}`;
@@ -646,11 +639,6 @@ let OrdersService = OrdersService_1 = class OrdersService {
         }
         const previousStatus = this.normalizeOrderStatus(order.status);
         const nextStatus = this.normalizeOrderStatus(dto.status);
-        const currentRank = this.statusRank[previousStatus] ?? 0;
-        const nextRank = this.statusRank[nextStatus] ?? 0;
-        if (nextRank < currentRank && previousStatus !== 'CANCELED') {
-            throw new common_1.BadRequestException(`Order status cannot move back from ${order.status} to ${dto.status}`);
-        }
         if (previousStatus !== 'CANCELED' &&
             nextStatus === 'CANCELED') {
             await this.restoreStockForOrder(order.toObject());
