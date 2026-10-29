@@ -2,6 +2,7 @@ import { Model } from 'mongoose';
 import { Delivery, DeliveryDocument } from './schemas/delivery.schema';
 import { OrderDocument } from '../orders/schemas/order.schema';
 import { BulkDeliveryStatusDto, CreateDeliveryDto, UpdateDeliveryDto } from './dto/delivery.dto';
+import { OrdersService } from '../orders/orders.service';
 export declare const DRIVERS: string[];
 export declare const TIME_SLOTS: string[];
 export interface DeliveryQuery {
@@ -13,7 +14,10 @@ export interface DeliveryQuery {
 export declare class DeliveriesService {
     private readonly model;
     private readonly orderModel;
-    constructor(model: Model<DeliveryDocument>, orderModel: Model<OrderDocument>);
+    private readonly ordersService;
+    constructor(model: Model<DeliveryDocument>, orderModel: Model<OrderDocument>, ordersService: OrdersService);
+    private readonly logger;
+    private syncOrderFromDelivery;
     options(): {
         drivers: string[];
         timeSlots: string[];
