@@ -27,19 +27,29 @@ export interface ReceiptPdfData {
   }>;
   createdAt: Date | string;
   adminNote?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
 }
 
-// Status badge colors [background, text] - RGB
-const STATUS_COLORS: Record<string, { bg: [number, number, number]; text: [number, number, number] }> = {
-  pending: { bg: [254, 243, 199], text: [146, 64, 14] },
-  processing: { bg: [219, 234, 254], text: [30, 64, 175] },
-  shipped: { bg: [224, 231, 255], text: [55, 48, 163] },
-  delivered: { bg: [209, 250, 229], text: [6, 95, 70] },
-  canceled: { bg: [254, 226, 226], text: [153, 27, 27] },
-};
+type RGB = [number, number, number];
 
-const BRAND_BLUE: [number, number, number] = [30, 64, 175]; // #1e40af
+// Colours mirror the website receipt page (/receipt/[orderId]).
+const NAVY: RGB = [0, 32, 91]; // #00205b
+const SLATE_900: RGB = [15, 23, 42];
+const SLATE_700: RGB = [51, 65, 85];
+const SLATE_600: RGB = [71, 85, 105];
+const SLATE_500: RGB = [100, 116, 139];
+const SLATE_200: RGB = [226, 232, 240];
+const SLATE_100: RGB = [241, 245, 249];
+const GREEN: RGB = [21, 128, 61];
+const AMBER: RGB = [217, 119, 6];
+const RED: RGB = [185, 28, 28];
 
+// logo.png is a 500x500 canvas whose artwork sits inside this box (px).
+const LOGO_CANVAS = 500;
+const LOGO_CONTENT = { x: 40, y: 154, width: 420 };
+
+const TIME_ZONE = 'Asia/Colombo';
 
 @Injectable()
 export class PdfGeneratorService {
@@ -89,309 +99,337 @@ export class PdfGeneratorService {
     }
   }
 
-  private buildReceipt(data: ReceiptPdfData): Buffer {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // pt units, easier to reason with font sizes
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 40;
-    let y = 40;
+  private formatPaymentMethod(method?: string): string {
+    switch (String(method ?? '').toLowerCase()) {
+      case 'cod':
+        return 'Cash on Delivery';
+      case 'bank_transfer':
+        return 'Bank Transfer';
+      case 'card':
+        return 'Card';
+      case '':
+        return '-';
+      default:
+        return String(method);
+    }
+  }
 
-    const date = new Date(data.createdAt).toLocaleDateString('en-US', {
+  private buildReceipt(data: ReceiptPdfData): Buffer {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 48;
+    const right = pageWidth - margin;
+    const contentWidth = pageWidth - margin * 2;
+
+    const money = (n: number) => `Rs. ${Number(n || 0).toLocaleString('en-US')}`;
+
+    const created = new Date(data.createdAt);
+    const dateText = `${created.toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
       year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+      timeZone: TIME_ZONE,
+    })}, ${created.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: TIME_ZONE,
+    })}`;
 
     const deliveryFee = data.deliveryFee ?? 0;
     const subtotal = data.subtotal ?? data.totalValue - deliveryFee;
+    const isPaid = String(data.paymentStatus ?? '').toLowerCase() === 'paid';
+    const paymentStatusText = String(data.paymentStatus ?? 'pending').toUpperCase();
 
-    // ===== HEADER: Logo (left) + Company info (right) =====
-    // The header spans a fixed band so both the logo and the company info can
-    // use the full vertical space instead of hugging the top.
-    const headerTop = y;
-    const headerHeight = 120;
-    const headerCenterY = headerTop + headerHeight / 2;
+    // Draws "label value" right-aligned, with the value in bold.
+    const rightLabelValue = (label: string, value: string, yy: number) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...SLATE_900);
+      doc.text(value, right, yy, { align: 'right' });
+      const valueWidth = doc.getTextWidth(value);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...SLATE_500);
+      doc.text(`${label} `, right - valueWidth, yy, { align: 'right' });
+    };
+
+    // ===== HEADER: logo (left) + title (right) =====
+    let y = 46;
 
     const logoBase64 = this.getLogoBase64();
-    let logoRendered = false;
     if (logoBase64) {
       try {
-        // Source logo is a 500x500 square. Keep it square so it isn't
-        // stretched/squished, and let it fill the header band vertically.
-        const logoSize = headerHeight; // fill the full header height
-        const logoY = headerTop; // top-aligned so it occupies the whole band
-        doc.addImage(logoBase64, 'PNG', margin, logoY, logoSize, logoSize, undefined, 'FAST');
-        logoRendered = true;
+        // Scale so the artwork (not the transparent canvas) is 150pt wide and
+        // line it up with the left margin / top of the header.
+        const scale = 150 / LOGO_CONTENT.width;
+        const size = LOGO_CANVAS * scale;
+        doc.addImage(
+          logoBase64,
+          'PNG',
+          margin - LOGO_CONTENT.x * scale,
+          y - LOGO_CONTENT.y * scale,
+          size,
+          size,
+          undefined,
+          'FAST',
+        );
       } catch (e) {
         this.logger.error('Logo render failed:', e as Error);
       }
     }
 
-    if (!logoRendered) {
-      // Fallback: just show company info without a logo placeholder
-    }
+    // Top accent bar (drawn after the logo so it always stays on top).
+    doc.setFillColor(...NAVY);
+    doc.rect(0, 0, pageWidth, 8, 'F');
 
-    // Company info block, vertically centered within the header band and right-aligned.
-    const companyLines = [
-      'magnifyofficials@gmail.com',
-      '+94 75 391 2534',
-      '125A, KKS Road, Kokuvil, Jaffna',
-      'Instagram: @magnify_magnets',
-    ];
-    const infoLineHeight = 15;
-    const infoBlockHeight = companyLines.length * infoLineHeight;
-    let infoY = headerCenterY - infoBlockHeight / 2 + 4;
-
-    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(17);
+    doc.setTextColor(...SLATE_900);
+    doc.text('PAYMENT RECEIPT', right, y + 14, { align: 'right' });
+    rightLabelValue('Receipt No:', `#REC-${data.orderId}`, y + 32);
+    rightLabelValue('Order ID:', `#${data.orderId}`, y + 45);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105); // slate-600
-    companyLines.forEach((line, i) => {
-      doc.text(line, pageWidth - margin, infoY + i * infoLineHeight, { align: 'right' });
-    });
+    doc.setFontSize(8);
+    doc.setTextColor(...SLATE_500);
+    doc.text(`Date: ${dateText}`, right, y + 58, { align: 'right' });
 
-    y = headerTop + headerHeight;
+    y += 100;
 
-    // Header bottom border
-    doc.setDrawColor(...BRAND_BLUE);
-    doc.setLineWidth(2);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 18;
+    // ===== CUSTOMER DETAILS / DELIVERY DESTINATION =====
+    const colWidth = contentWidth / 2 - 12;
+    const leftX = margin;
+    const rightX = margin + contentWidth / 2 + 12;
 
-    // ===== RECEIPT TITLE =====
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59); // slate-800
-    doc.text('Order Receipt', pageWidth / 2, y, { align: 'center' });
-    y += 18;
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text(`Order #${data.orderId}`, pageWidth / 2, y, { align: 'center' });
-    y += 14;
-    doc.text(date, pageWidth / 2, y, { align: 'center' });
-    y += 24;
-
-    // ===== STATUS BADGE =====
-    const statusKey = (data.status || 'pending').toLowerCase();
-    const statusColor = STATUS_COLORS[statusKey] || STATUS_COLORS.pending;
-    const badgeText = (data.status || 'pending').toUpperCase();
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    const badgeWidth = doc.getTextWidth(badgeText) + 24;
-    const badgeX = pageWidth / 2 - badgeWidth / 2;
-
-    doc.setFillColor(...statusColor.bg);
-    doc.roundedRect(badgeX, y - 12, badgeWidth, 20, 10, 10, 'F');
-    doc.setTextColor(...statusColor.text);
-    doc.text(badgeText, pageWidth / 2, y + 2, { align: 'center' });
-    y += 35;
-
-    // ===== CUSTOMER DETAILS =====
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text('CUSTOMER DETAILS', margin, y);
-    y += 5;
-
-    doc.setDrawColor(226, 232, 240); // slate-200
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 18;
-
-    const fieldBoxWidth = (pageWidth - margin * 2 - 12) / 2;
-
-    // Returns the box height it drew, based on how many lines the value wraps to.
-    // This is what lets a long delivery address grow the box instead of overflowing it.
-    const drawInfoField = (x: number, boxY: number, label: string, value: string, fullWidth = false): number => {
-      const w = fullWidth ? pageWidth - margin * 2 : fieldBoxWidth;
-      const innerWidth = w - 20;
-
-      doc.setFontSize(10);
+    const heading = (text: string, x: number, yy: number) => {
       doc.setFont('helvetica', 'bold');
-      const valueLines: string[] = doc.splitTextToSize(value || '', innerWidth);
-      const lineHeight = 12;
-      const boxHeight = Math.max(34, 22 + valueLines.length * lineHeight);
-
-      doc.setFillColor(248, 250, 252); // slate-50
-      doc.rect(x, boxY, w, boxHeight, 'F');
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(2);
-      doc.line(x, boxY, x, boxY + boxHeight); // left accent border
-
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text(label.toUpperCase(), x + 10, boxY + 12);
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text(valueLines, x + 10, boxY + 26);
-
-      return boxHeight;
+      doc.setFontSize(8.5);
+      doc.setTextColor(...SLATE_900);
+      doc.text(text, x, yy, { charSpace: 0.8 });
     };
 
-    const nameBoxHeight = drawInfoField(margin, y, 'Name', data.customerName);
-    const emailBoxHeight = drawInfoField(margin + fieldBoxWidth + 12, y, 'Email', data.email);
-    y += Math.max(nameBoxHeight, emailBoxHeight) + 12;
+    heading('CUSTOMER DETAILS', leftX, y);
+    heading('DELIVERY DESTINATION', rightX, y);
 
-    let secondRowHeight = 0;
-    if (data.phone) {
-      secondRowHeight = Math.max(secondRowHeight, drawInfoField(margin, y, 'Phone', data.phone));
-    }
-    if (data.shippingAddress) {
-      const addressText = `${data.shippingAddress}${data.district ? `, ${data.district}` : ''}`;
-      if (data.phone) {
-        secondRowHeight = Math.max(
-          secondRowHeight,
-          drawInfoField(margin + fieldBoxWidth + 12, y, 'Delivery Address', addressText),
-        );
-      } else {
-        secondRowHeight = Math.max(secondRowHeight, drawInfoField(margin, y, 'Delivery Address', addressText, true));
+    const detailLines = (x: number, startY: number, lines: string[]) => {
+      let yy = startY;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(...SLATE_600);
+      for (const line of lines) {
+        const wrapped: string[] = doc.splitTextToSize(line, colWidth);
+        for (const w of wrapped) {
+          doc.text(w, x, yy);
+          yy += 14;
+        }
       }
-    }
-    y += secondRowHeight + 25;
+      return yy;
+    };
 
-    // ===== ORDER ITEMS TABLE =====
-    doc.setFontSize(11);
+    const nameY = y + 20;
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text('ORDER ITEMS', margin, y);
-    y += 5;
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 12;
+    doc.setFontSize(12);
+    doc.setTextColor(...SLATE_900);
+    doc.text(data.customerName || '-', leftX, nameY);
+    doc.text(data.customerName || '-', rightX, nameY);
 
+    const customerEnd = detailLines(
+      leftX,
+      nameY + 17,
+      [data.email, data.phone ?? ''].filter(Boolean) as string[],
+    );
+    const address = [data.shippingAddress, data.district].filter(Boolean).join(', ');
+    const deliveryEnd = detailLines(
+      rightX,
+      nameY + 17,
+      [address, data.phone ? `Contact: ${data.phone}` : ''].filter(Boolean) as string[],
+    );
+
+    y = Math.max(customerEnd, deliveryEnd) + 22;
+
+    // ===== ITEMS TABLE =====
     const items =
       data.items && data.items.length > 0
         ? data.items
         : [{ name: 'Custom Magnet Frame', price: subtotal, quantity: 1 }];
 
-
     const getLineTotal = (price: number, quantity: number, name?: string): number => {
       const normalized = String(name ?? '').trim().toLowerCase();
-      const isFourMagnetsPack =
-        normalized === '4 magnets' || normalized.startsWith('4 magnets ');
+      const isFourMagnetsPack = normalized === '4 magnets' || normalized.startsWith('4 magnets ');
       const packSize = isFourMagnetsPack ? 4 : 1;
       return price * (quantity / packSize);
     };
 
-    // Build table rows. Image column left blank in text; drawn separately via didDrawCell.
-    const tableBody = items.map((item) => {
-      const detailParts: string[] = [];
-      if (item.frameType) detailParts.push(item.frameType);
-      if (item.colorOption) detailParts.push(item.colorOption);
-      const itemTotal = getLineTotal(item.price || 0, item.quantity || 1, item.name);
-      const productCell = `${item.name || 'Custom Magnet Frame'}${
-        detailParts.length ? `\n${detailParts.join(' | ')}` : ''
-      }`;
-      return [
-        productCell,
-        String(item.quantity || 1),
-        `Rs ${(item.price || 0).toLocaleString()}`,
-        `Rs ${itemTotal.toLocaleString()}`,
-      ];
-    });
+    const rowMeta = items.map((item) => ({
+      name: item.name || 'Custom Magnet Frame',
+      detail: [item.frameType, item.colorOption].filter(Boolean).join(' • '),
+    }));
 
     autoTable(doc, {
       startY: y,
-      head: [['Product', 'Qty', 'Price', 'Total']],
-      body: tableBody,
       margin: { left: margin, right: margin },
-      styles: { fontSize: 9, cellPadding: 8, valign: 'middle' },
-      headStyles: { fillColor: BRAND_BLUE, textColor: 255, fontStyle: 'bold', halign: 'center' },
+      theme: 'plain',
+      head: [['Product Description', 'Qty', 'Total']],
+      // Product text is drawn manually (bold name + lighter detail line); the
+      // placeholder only reserves the right amount of height.
+      body: items.map((item, i) => [
+        rowMeta[i].detail ? ' \n ' : ' ',
+        String(item.quantity || 1).padStart(2, '0'),
+        money(getLineTotal(item.price || 0, item.quantity || 1, item.name)),
+      ]),
+      styles: {
+        font: 'helvetica',
+        fontSize: 10,
+        textColor: SLATE_700,
+        cellPadding: { top: 11, bottom: 11, left: 14, right: 14 },
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: SLATE_100,
+        textColor: SLATE_600,
+        fontStyle: 'bold',
+        fontSize: 8.5,
+        cellPadding: { top: 10, bottom: 10, left: 14, right: 14 },
+      },
       columnStyles: {
-        0: { halign: 'left' },
-        1: { halign: 'center', cellWidth: 40 },
-        2: { halign: 'center', cellWidth: 70 },
-        3: { halign: 'center', cellWidth: 70 },
+        0: { cellWidth: 'auto' },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 110, halign: 'right', fontStyle: 'bold', textColor: SLATE_900 },
+      },
+      didParseCell: (hook) => {
+        if (hook.section === 'head' && hook.column.index === 2) {
+          hook.cell.styles.halign = 'right';
+        }
+      },
+      didDrawCell: (hook) => {
+        if (hook.section !== 'body') return;
+        const { cell } = hook;
+
+        if (hook.column.index === 0) {
+          const meta = rowMeta[hook.row.index];
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(...SLATE_900);
+          if (meta.detail) {
+            doc.text(meta.name, cell.x + 14, cell.y + cell.height / 2 - 2);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(...SLATE_500);
+            doc.text(meta.detail, cell.x + 14, cell.y + cell.height / 2 + 10);
+          } else {
+            doc.text(meta.name, cell.x + 14, cell.y + cell.height / 2 + 3.5);
+          }
+        }
+
+        // Light divider under each row.
+        doc.setDrawColor(...SLATE_100);
+        doc.setLineWidth(0.8);
+        doc.line(cell.x, cell.y + cell.height, cell.x + cell.width, cell.y + cell.height);
       },
     });
 
-    // Y position after table - CRITICAL for dynamic item count support
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 20;
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 28;
 
-    // ===== TOTALS =====
-    const totalsX = pageWidth - margin - 160;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Subtotal', totalsX, y);
-    doc.setTextColor(51, 65, 85);
-    doc.text(`Rs ${subtotal.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
-    y += 18;
-
-    if (data.shippingAddress || deliveryFee > 0) {
-      doc.setTextColor(100, 116, 139);
-      doc.text('Shipping', totalsX, y);
-      doc.setTextColor(51, 65, 85);
-      doc.text(`Rs ${deliveryFee.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
-      y += 18;
+    // Keep the payment block, banner and footer together on one page.
+    if (y + 230 > pageHeight - 30) {
+      doc.addPage();
+      doc.setFillColor(...NAVY);
+      doc.rect(0, 0, pageWidth, 8, 'F');
+      y = 56;
     }
 
-    doc.setDrawColor(...BRAND_BLUE);
-    doc.setLineWidth(1.5);
-    doc.line(totalsX - 10, y, pageWidth - margin, y);
-    y += 16;
+    // ===== PAYMENT INFORMATION (left) =====
+    const boxWidth = contentWidth * 0.48;
+    const boxHeight = 84;
+    doc.setFillColor(...SLATE_100);
+    doc.roundedRect(margin, y, boxWidth, boxHeight, 8, 8, 'F');
 
-    doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text('Total Amount', totalsX, y);
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text(`Rs ${data.totalValue.toLocaleString()}`, pageWidth - margin, y, { align: 'right' });
-    y += 30;
+    doc.setFontSize(8.5);
+    doc.setTextColor(...SLATE_900);
+    doc.text('PAYMENT INFORMATION', margin + 16, y + 22, { charSpace: 0.8 });
 
-    // ===== ADMIN NOTE (variable length - wrap + recalculate y) =====
-    if (data.adminNote) {
+    const infoRow = (label: string, value: string, yy: number, color: RGB = SLATE_900) => {
       doc.setFont('helvetica', 'normal');
-      const noteLines: string[] = doc.splitTextToSize(data.adminNote, pageWidth - margin * 2 - 24);
-      const noteBoxHeight = noteLines.length * 12 + 20;
-
-      // background box drawn behind text
-      doc.setFillColor(255, 251, 235);
-      doc.rect(margin, y - 24, pageWidth - margin * 2, noteBoxHeight, 'F');
-      doc.setDrawColor(245, 158, 11);
-      doc.setLineWidth(3);
-      doc.line(margin, y - 24, margin, y - 24 + noteBoxHeight);
-
-      doc.setFontSize(9);
+      doc.setFontSize(10);
+      doc.setTextColor(...SLATE_500);
+      doc.text(label, margin + 16, yy);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(146, 64, 14);
-      doc.text('NOTE', margin + 12, y - 12);
+      doc.setTextColor(...color);
+      doc.text(value, margin + boxWidth - 16, yy, { align: 'right' });
+    };
+    infoRow('Method', this.formatPaymentMethod(data.paymentMethod), y + 44);
+    infoRow('Status', paymentStatusText, y + 64, isPaid ? GREEN : AMBER);
 
+    // ===== TOTALS (right) =====
+    const totalsX = margin + contentWidth * 0.55;
+    let ty = y + 14;
+
+    const totalsRow = (label: string, value: string, yy: number, color: RGB = SLATE_600) => {
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(120, 53, 15);
-      doc.text(noteLines, margin + 12, y);
-
-      y += noteLines.length * 12 + 20;
+      doc.setFontSize(10);
+      doc.setTextColor(...SLATE_600);
+      doc.text(label, totalsX, yy);
+      doc.setTextColor(...color);
+      doc.text(value, right, yy, { align: 'right' });
+    };
+    totalsRow('Subtotal', money(subtotal), ty);
+    ty += 22;
+    if (deliveryFee > 0) {
+      totalsRow('Delivery Charge', money(deliveryFee), ty);
+    } else {
+      totalsRow('Delivery Charge', 'Free', ty, GREEN);
     }
+    ty += 14;
 
-    y += 20;
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.8);
+    doc.setLineDashPattern([3, 3], 0);
+    doc.line(totalsX, ty, right, ty);
+    doc.setLineDashPattern([], 0);
+    ty += 24;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...SLATE_900);
+    doc.text(isPaid ? 'Total Amount Paid' : 'Total Amount', totalsX, ty);
+    doc.setFontSize(16);
+    doc.setTextColor(...RED);
+    doc.text(money(data.totalValue), right, ty, { align: 'right' });
+
+    y += boxHeight + 28;
+
+    // ===== CONFIRMATION BANNER =====
+    const bannerText = isPaid
+      ? 'Your payment has been received successfully, and your order has been confirmed. Thank you for shopping with us!'
+      : 'Your order has been received and confirmed. Thank you for shopping with us!';
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const bannerLines: string[] = doc.splitTextToSize(bannerText, contentWidth - 44);
+    const bannerHeight = bannerLines.length * 14 + 28;
+
+    doc.setFillColor(...NAVY);
+    doc.roundedRect(margin, y, contentWidth, bannerHeight, 8, 8, 'F');
+    doc.setTextColor(239, 246, 255);
+    doc.text(bannerLines, margin + 22, y + 22);
+
+    y += bannerHeight + 34;
 
     // ===== FOOTER =====
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
+    doc.setDrawColor(...SLATE_200);
+    doc.setLineWidth(0.6);
+    doc.line(margin, y, right, y);
+    y += 24;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...SLATE_700);
+    doc.text('WWW.MAGNIFY.LK', pageWidth / 2, y, { align: 'center', charSpace: 1.6 });
     y += 20;
 
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...BRAND_BLUE);
-    doc.text('Thank you for choosing MAGNIFY!', pageWidth / 2, y, { align: 'center' });
-    y += 16;
-
-    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(148, 163, 184);
-    const footerLines = [
-      'Your custom fridge magnets are being prepared with care.',
-      'For any questions, contact us at magnifyofficials@gmail.com or call +94 75 391 2534.',
-      '125A, KKS Road, Kokuvil, Jaffna',
-    ];
-    footerLines.forEach((line, i) => {
-      doc.text(line, pageWidth / 2, y + i * 11, { align: 'center' });
-    });
+    doc.setFontSize(10);
+    doc.setTextColor(...SLATE_600);
+    doc.text('Contact Support: support@magnify.lk', pageWidth / 2, y, { align: 'center' });
 
     // Return as Node Buffer (matches what orders.controller.ts expects)
     return Buffer.from(doc.output('arraybuffer'));

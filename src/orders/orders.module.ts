@@ -8,6 +8,7 @@ import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
 import { PdfGeneratorService } from './services/pdf-generator.service';
 import { CloudflareR2Module } from '../cloudflareR2/cloudflareR2.module';
+import { Transaction, TransactionSchema } from '../finance/schemas/transaction.schema';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { CloudflareR2Module } from '../cloudflareR2/cloudflareR2.module';
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },
       { name: Product.name, schema: ProductSchema },
+      { name: Transaction.name, schema: TransactionSchema },
     ]),
   ],
   controllers: [OrdersController],

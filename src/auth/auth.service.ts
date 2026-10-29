@@ -49,7 +49,7 @@ export class AuthService {
     const admin = await this.adminModel.findOne({ email: loginDto.email.toLowerCase() });
     if (admin) {
       const passwordValid = await bcrypt.compare(loginDto.password, admin.password);
-      if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+      if (!passwordValid) throw new UnauthorizedException('Invalid email or password.');
 
       const token = this.jwtService.sign({
         email: admin.email,
@@ -73,14 +73,25 @@ export class AuthService {
     // Fall back to User collection
     const user = await this.usersService.findByEmail(loginDto.email);
 
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user) throw new UnauthorizedException('Invalid email or password.');
 
     if (user.isActive !== true) {
-      throw new UnauthorizedException('Please check your email and verify your email address.');
+      // Verified before but switched off by an admin -> deactivated, not "unverified".
+      const wasVerified =
+        user.emailVerified === true ||
+        (user.emailVerified === undefined && !user.activationToken);
+      if (wasVerified) {
+        throw new UnauthorizedException(
+          'Your account has been deactivated. Please contact support.',
+        );
+      }
+      throw new UnauthorizedException(
+        'Your account is not verified. Please check your email for the verification link.',
+      );
     }
 
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
-    if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+    if (!passwordValid) throw new UnauthorizedException('Invalid email or password.');
 
     await this.usersService.ensureForRegisteredUser({
       email: user.email,
@@ -167,7 +178,22 @@ export class AuthService {
   async activateAccount(token: string) {
     const user = await this.usersService.findByActivationToken(token);
 
-    if (!user || !user.activationExpires) {
+    if (!user) {
+      throw new BadRequestException('Invalid or expired activation link.');
+    }
+
+    // The link was already used: the account stays activated.
+    if (user.emailVerified === true) {
+      if (user.isActive !== true) {
+        throw new BadRequestException('This account is disabled. Please contact support.');
+      }
+      return {
+        message: 'Your account is already activated. Please sign in.',
+        alreadyActivated: true,
+      };
+    }
+
+    if (!user.activationExpires) {
       throw new BadRequestException('Invalid or expired activation link.');
     }
 
@@ -179,8 +205,8 @@ export class AuthService {
 
     user.isActive = true;
     user.emailVerified = true;
-    user.activationToken = undefined;
-    user.activationExpires = undefined;
+    // Keep the (hashed) token so a second click can be answered with
+    // "already activated" instead of a confusing "invalid link".
     await user.save();
 
     await this.usersService.ensureForRegisteredUser({
@@ -294,6 +320,7 @@ export class AuthService {
       phoneNumber: user.phoneNumber || '',
       customerAddress: user.customerAddress || '',
       customerId: user.customerId || '',
+      createdAt: user.createdAt,
     };
   }
 
@@ -319,8 +346,9 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // If the email is changing, make sure it is not already taken.
-    if (dto.email && dto.email.toLowerCase() !== user.email) {
+    // Customers cannot change their email address; only admins can.
+    // If an admin's email is changing, make sure it is not already taken.
+    if (isAdmin && dto.email && dto.email.toLowerCase() !== user.email) {
       const existing = await this.usersService.findByEmail(dto.email);
       if (existing) {
         throw new ConflictException('Email already in use');
@@ -355,7 +383,12 @@ export class AuthService {
 
     const profileUpdate: Record<string, unknown> = {};
     if (dto.fullName !== undefined) profileUpdate.fullName = dto.fullName;
-    if (dto.email !== undefined) profileUpdate.email = dto.email.toLowerCase();
+    if (isAdmin && dto.email !== undefined)
+      profileUpdate.email = dto.email.toLowerCase();
+    if (dto.phoneNumber !== undefined)
+      profileUpdate.phoneNumber = dto.phoneNumber.trim();
+    if (dto.customerAddress !== undefined)
+      profileUpdate.customerAddress = dto.customerAddress.trim();
     if (dto.bio !== undefined) profileUpdate.bio = dto.bio;
     if (dto.twoFactorEnabled !== undefined)
       profileUpdate.twoFactorEnabled = dto.twoFactorEnabled;

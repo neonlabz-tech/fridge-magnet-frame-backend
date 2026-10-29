@@ -88,6 +88,11 @@ export class CreateOrderDto {
   @IsIn(['paid', 'pending', 'failed', 'refunded'])
   paymentStatus?: string;
 
+  // Uploaded bank transfer receipt (required for website bank transfer orders).
+  @IsOptional()
+  @IsString()
+  paymentSlipUrl?: string;
+
   // 'direct' = order entered by staff in the dashboard (Direct Order).
   @IsOptional()
   @IsString()

@@ -4,12 +4,16 @@ import {
   Delete,
   Get,
   Logger,
+  NotFoundException,
   Param,
   Patch,
   Post,
   Query,
+  Request,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrdersService } from './orders.service';
@@ -24,6 +28,12 @@ export class OrdersController {
   @Post()
   create(@Body() dto: CreateOrderDto) {
     return this.ordersService.create(dto);
+  }
+
+  /** One-off: create Finance income records for orders that were already paid (safe to run again). */
+  @Post('sync-income')
+  syncIncome() {
+    return this.ordersService.backfillOrderIncomes();
   }
 
   @Get()
@@ -49,6 +59,32 @@ export class OrdersController {
       'Cache-Control': 'no-store',
     });
     res.send(photo.buffer);
+  }
+
+  /** Orders of the logged-in customer. */
+  @UseGuards(JwtAuthGuard)
+  @Get('my')
+  findMine(@Request() req: { user: { userId: string } }) {
+    return this.ordersService.findForUser(req.user.userId);
+  }
+
+  /** One order of the logged-in customer (used by the receipt page). */
+  @UseGuards(JwtAuthGuard)
+  @Get('my/:orderId')
+  async findMyOrder(
+    @Request() req: { user: { userId: string } },
+    @Param('orderId') orderId: string,
+  ) {
+    const [order] = await this.ordersService.findForUser(
+      req.user.userId,
+      orderId,
+    );
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return order;
   }
 
   @Get(':id')
