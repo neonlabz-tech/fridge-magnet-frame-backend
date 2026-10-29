@@ -57,6 +57,10 @@ export class Order {
   @Prop({ default: 'pending', enum: ['paid', 'pending', 'failed', 'refunded'] })
   paymentStatus!: string;
 
+  /** Bank transfer slip image (stored in Cloudflare R2 under receipts/). */
+  @Prop()
+  paymentSlipUrl?: string;
+
   @Prop()
   shippingAddress?: string;
 
