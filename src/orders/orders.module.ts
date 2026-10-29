@@ -23,5 +23,6 @@ import { Transaction, TransactionSchema } from '../finance/schemas/transaction.s
   ],
   controllers: [OrdersController],
   providers: [OrdersService, PdfGeneratorService],
+  exports: [OrdersService],
 })
 export class OrdersModule {}
