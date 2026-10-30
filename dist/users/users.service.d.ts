@@ -34,6 +34,8 @@ export declare class UsersService {
     findCustomerByEmail(email: string): Promise<User | null>;
     private serializeCustomer;
     private normalisePhone;
+    private static readonly NO_EMAIL_DOMAIN;
+    private assertPhoneOk;
     createCustomer(dto: CreateCustomerDto): Promise<any>;
     findCustomerByEmailAddress(email: string): Promise<any | null>;
     findAllCustomers(page?: number, limit?: number): Promise<{

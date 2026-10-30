@@ -10,6 +10,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -59,6 +60,10 @@ export class CreateLeadDto {
   @IsOptional()
   @IsString()
   owner?: string;
+
+  @IsOptional()
+  @IsString()
+  addedBy?: string;
 
   @IsOptional()
   @IsString()
@@ -136,6 +141,10 @@ export class UpdateLeadDto {
   @IsOptional()
   @IsString()
   owner?: string;
+
+  @IsOptional()
+  @IsString()
+  addedBy?: string;
 
   @IsOptional()
   @IsString()
@@ -248,4 +257,17 @@ export class UpsertTargetDto {
   @IsInt()
   @Min(0)
   dailyLeads!: number;
+}
+
+export class UpsertCommissionTierDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minSales!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  rate!: number;
 }
