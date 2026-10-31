@@ -167,7 +167,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
     }
     async purgeExpiredCustomerImages() {
         try {
-            const days = Number(process.env.CUSTOMER_IMAGE_RETENTION_DAYS ?? 7) || 7;
+            const days = Number(process.env.CUSTOMER_IMAGE_RETENTION_DAYS ?? 3) || 3;
             const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
             const filter = {
                 status: order_schema_1.OrderStatus.DELIVERED,

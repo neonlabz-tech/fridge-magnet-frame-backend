@@ -1,5 +1,6 @@
 import {
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -17,8 +18,8 @@ export class CreateCustomerDto {
     message:
       'Email should be in a valid format like user@example.com and use a .com, .net, or .org domain',
   })
-  @IsNotEmpty()
-  emailAddress!: string;
+  @IsOptional()
+  emailAddress?: string;
 
   @IsString()
   @IsNotEmpty()

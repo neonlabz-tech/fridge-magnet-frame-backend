@@ -3,6 +3,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
 import {
+  CommissionTier,
+  CommissionTierSchema,
   Lead,
   LeadSchema,
   LeadTarget,
@@ -14,6 +16,7 @@ import {
     MongooseModule.forFeature([
       { name: Lead.name, schema: LeadSchema },
       { name: LeadTarget.name, schema: LeadTargetSchema },
+      { name: CommissionTier.name, schema: CommissionTierSchema },
     ]),
   ],
   controllers: [LeadsController],

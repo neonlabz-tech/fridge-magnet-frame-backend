@@ -44,6 +44,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var UsersService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UsersService = void 0;
 const common_1 = require("@nestjs/common");
@@ -54,6 +55,7 @@ const order_schema_1 = require("../orders/schemas/order.schema");
 const bcrypt = __importStar(require("bcrypt"));
 const crypto = __importStar(require("crypto"));
 let UsersService = class UsersService {
+    static { UsersService_1 = this; }
     constructor(userModel, orderModel) {
         this.userModel = userModel;
         this.orderModel = orderModel;
@@ -218,7 +220,7 @@ let UsersService = class UsersService {
             recordId: user._id,
             customerId: user.customerId ?? '',
             customerName: user.fullName ?? user.email?.split('@')[0] ?? 'Customer',
-            emailAddress: user.email,
+            emailAddress: String(user.email ?? '').endsWith(UsersService_1.NO_EMAIL_DOMAIN) ? '' : user.email,
             phoneNumber: user.phoneNumber ?? 'Not provided',
             customerAddress: user.customerAddress ?? 'Not provided',
             isActive: user.isActive === true,
@@ -241,11 +243,32 @@ let UsersService = class UsersService {
         }
         return digits.length >= 10 ? digits.slice(-10) : '0000000000';
     }
+    static { this.NO_EMAIL_DOMAIN = '@manual.magnify.local'; }
+    async assertPhoneOk(phone, exceptId) {
+        if (!/^\d{10}$/.test(phone ?? '')) {
+            throw new common_1.BadRequestException('Phone number must contain exactly 10 digits');
+        }
+        const clash = await this.userModel.findOne({ phoneNumber: phone, role: 'user' }).exec();
+        if (clash && clash._id.toString() !== exceptId) {
+            throw new common_1.ConflictException(`This phone number is already used by customer ${clash.customerId || clash.fullName || ''}`.trim());
+        }
+    }
     async createCustomer(dto) {
-        const email = dto.emailAddress.toLowerCase();
+        if (!dto.customerName || dto.customerName.trim().length < 2) {
+            throw new common_1.BadRequestException('Full name is required');
+        }
+        if (!dto.customerAddress || dto.customerAddress.trim().length < 5) {
+            throw new common_1.BadRequestException('Shipping address is required');
+        }
+        await this.assertPhoneOk(dto.phoneNumber);
+        const given = (dto.emailAddress ?? '').trim();
+        if (given && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(given)) {
+            throw new common_1.BadRequestException('Email should be in a valid format like user@example.com');
+        }
+        const email = (given || `${dto.phoneNumber}${UsersService_1.NO_EMAIL_DOMAIN}`).toLowerCase();
         const existing = await this.findByEmail(email);
         if (existing) {
-            throw new common_1.ConflictException(`Customer with email "${dto.emailAddress}" already exists`);
+            throw new common_1.ConflictException(`Customer with email "${email}" already exists`);
         }
         const randomPassword = crypto.randomUUID();
         const user = await this.create(email, randomPassword, 'user', dto.customerName, {
@@ -296,6 +319,9 @@ let UsersService = class UsersService {
                 clash._id.toString() !== existing._id.toString()) {
                 throw new common_1.ConflictException(`Customer with email "${dto.emailAddress}" already exists`);
             }
+        }
+        if (dto.phoneNumber !== undefined && dto.phoneNumber !== existing.phoneNumber) {
+            await this.assertPhoneOk(dto.phoneNumber, existing._id.toString());
         }
         const fields = {};
         if (dto.customerName !== undefined)
@@ -394,7 +420,7 @@ let UsersService = class UsersService {
     }
 };
 exports.UsersService = UsersService;
-exports.UsersService = UsersService = __decorate([
+exports.UsersService = UsersService = UsersService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(user_schema_1.User.name)),
     __param(1, (0, mongoose_1.InjectModel)(order_schema_1.Order.name)),

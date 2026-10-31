@@ -211,10 +211,10 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     return { deleted, failed };
   }
 
-  /** Delivered orders older than the retention period (default 7 days) lose their customer photos. */
+  /** Delivered orders older than the retention period (default 3 days) lose their customer photos. */
   async purgeExpiredCustomerImages(): Promise<void> {
     try {
-      const days = Number(process.env.CUSTOMER_IMAGE_RETENTION_DAYS ?? 7) || 7;
+      const days = Number(process.env.CUSTOMER_IMAGE_RETENTION_DAYS ?? 3) || 3;
       const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
       const filter: any = {
         status: OrderStatus.DELIVERED,
