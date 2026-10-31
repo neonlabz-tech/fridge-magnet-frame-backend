@@ -136,8 +136,14 @@ export class DeliveriesService {
     return { data, total: data.length };
   }
 
+  /** Ids are stored as MGD-260913; accept the #-prefixed spelling too. */
+  private ids(id: string): string[] {
+    const bare = id.replace(/^#/, '');
+    return [bare, `#${bare}`];
+  }
+
   async findOne(id: string) {
-    const delivery = await this.model.findOne({ id }).exec();
+    const delivery = await this.model.findOne({ id: { $in: this.ids(id) } }).exec();
     if (!delivery) throw new NotFoundException(`Delivery ${id} not found`);
     return delivery;
   }
@@ -152,7 +158,7 @@ export class DeliveriesService {
 
   async update(id: string, dto: UpdateDeliveryDto) {
     const delivery = await this.model
-      .findOneAndUpdate({ id }, { $set: dto }, { new: true, runValidators: true })
+      .findOneAndUpdate({ id: { $in: this.ids(id) } }, { $set: dto }, { new: true, runValidators: true })
       .exec();
     if (!delivery) throw new NotFoundException(`Delivery ${id} not found`);
     await this.syncOrderFromDelivery(delivery.orderId, delivery.status);
@@ -177,7 +183,7 @@ export class DeliveriesService {
   }
 
   async remove(id: string) {
-    const delivery = await this.model.findOneAndDelete({ id }).exec();
+    const delivery = await this.model.findOneAndDelete({ id: { $in: this.ids(id) } }).exec();
     if (!delivery) throw new NotFoundException(`Delivery ${id} not found`);
     return { message: 'Delivery deleted successfully', data: delivery };
   }

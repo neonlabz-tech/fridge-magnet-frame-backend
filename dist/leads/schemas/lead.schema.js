@@ -9,10 +9,21 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LeadTargetSchema = exports.LeadTarget = exports.LeadSchema = exports.Lead = exports.LEAD_STATUSES = void 0;
+exports.CommissionTierSchema = exports.CommissionTier = exports.LeadTargetSchema = exports.LeadTarget = exports.LeadSchema = exports.Lead = exports.LEAD_STATUSES = void 0;
 const mongoose_1 = require("@nestjs/mongoose");
 const clean_json_1 = require("../../common/utils/clean-json");
-exports.LEAD_STATUSES = ['New', 'Connected', 'Follow Up', 'Converted', 'Lost'];
+exports.LEAD_STATUSES = [
+    'New',
+    'Connected',
+    'Interested',
+    'Not interested',
+    'Call back',
+    'Order discussion',
+    'No response',
+    'Follow Up',
+    'Lost',
+    'Converted',
+];
 let Lead = class Lead {
 };
 exports.Lead = Lead;
@@ -56,6 +67,10 @@ __decorate([
     (0, mongoose_1.Prop)({ default: '' }),
     __metadata("design:type", String)
 ], Lead.prototype, "nextFollowUp", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: '' }),
+    __metadata("design:type", String)
+], Lead.prototype, "addedBy", void 0);
 __decorate([
     (0, mongoose_1.Prop)({ default: '' }),
     __metadata("design:type", String)
@@ -116,4 +131,23 @@ exports.LeadTarget = LeadTarget = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true, toJSON: (0, clean_json_1.cleanJson)() })
 ], LeadTarget);
 exports.LeadTargetSchema = mongoose_1.SchemaFactory.createForClass(LeadTarget);
+let CommissionTier = class CommissionTier {
+};
+exports.CommissionTier = CommissionTier;
+__decorate([
+    (0, mongoose_1.Prop)({ required: true, unique: true }),
+    __metadata("design:type", String)
+], CommissionTier.prototype, "id", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ required: true, min: 0 }),
+    __metadata("design:type", Number)
+], CommissionTier.prototype, "minSales", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ required: true, min: 0, max: 100 }),
+    __metadata("design:type", Number)
+], CommissionTier.prototype, "rate", void 0);
+exports.CommissionTier = CommissionTier = __decorate([
+    (0, mongoose_1.Schema)({ timestamps: true, toJSON: (0, clean_json_1.cleanJson)() })
+], CommissionTier);
+exports.CommissionTierSchema = mongoose_1.SchemaFactory.createForClass(CommissionTier);
 //# sourceMappingURL=lead.schema.js.map

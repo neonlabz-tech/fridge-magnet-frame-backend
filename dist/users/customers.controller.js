@@ -26,6 +26,9 @@ let CustomersController = class CustomersController {
             phoneNumber: input.phoneNumber ?? input.phone,
             customerAddress: input.customerAddress ?? input.address,
         };
+        if (typeof normalized.emailAddress === 'string' && !normalized.emailAddress.trim()) {
+            normalized.emailAddress = undefined;
+        }
         return Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined));
     }
     async create(createCustomerDto) {

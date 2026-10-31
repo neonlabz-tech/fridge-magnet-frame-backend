@@ -25,7 +25,7 @@ __decorate([
     (0, class_validator_1.Matches)(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|net|org)$/, {
         message: 'Email should be in a valid format like user@example.com and use a .com, .net, or .org domain',
     }),
-    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
 ], CreateCustomerDto.prototype, "emailAddress", void 0);
 __decorate([

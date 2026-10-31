@@ -17,6 +17,7 @@ import {
   ImportLeadsDto,
   ReassignLeadsDto,
   UpdateLeadDto,
+  UpsertCommissionTierDto,
   UpsertTargetDto,
 } from './dto/lead.dto';
 
@@ -37,6 +38,26 @@ export class LeadsController {
   @Get('targets')
   findTargets() {
     return this.leadsService.findTargets();
+  }
+
+  @Get('commission-tiers')
+  findTiers() {
+    return this.leadsService.findTiers();
+  }
+
+  @Post('commission-tiers')
+  createTier(@Body() dto: UpsertCommissionTierDto) {
+    return this.leadsService.createTier(dto);
+  }
+
+  @Patch('commission-tiers/:id')
+  updateTier(@Param('id') id: string, @Body() dto: UpsertCommissionTierDto) {
+    return this.leadsService.updateTier(id, dto);
+  }
+
+  @Delete('commission-tiers/:id')
+  removeTier(@Param('id') id: string) {
+    return this.leadsService.removeTier(id);
   }
 
   @Put('targets/:username')

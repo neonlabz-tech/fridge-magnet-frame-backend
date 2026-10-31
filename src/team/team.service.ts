@@ -275,7 +275,8 @@ export class TeamService {
         username: member.username,
         name: member.name,
         role: 'member',
-        teamName: TEAM_NAME,
+        // Shown under the user's name in the dashboard: their role (e.g. Operations Manager).
+        teamName: member.role || TEAM_NAME,
       },
       allowedPages: await this.allowedPages(member.role),
     };

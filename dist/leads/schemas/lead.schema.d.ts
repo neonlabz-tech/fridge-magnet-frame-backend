@@ -1,7 +1,8 @@
 import { Document } from 'mongoose';
 export type LeadDocument = Lead & Document;
 export type LeadTargetDocument = LeadTarget & Document;
-export declare const LEAD_STATUSES: readonly ["New", "Connected", "Follow Up", "Converted", "Lost"];
+export type CommissionTierDocument = CommissionTier & Document;
+export declare const LEAD_STATUSES: readonly ["New", "Connected", "Interested", "Not interested", "Call back", "Order discussion", "No response", "Follow Up", "Lost", "Converted"];
 export interface FollowUp {
     n: number;
     at: string;
@@ -38,6 +39,7 @@ export declare class Lead {
     product: string;
     status: string;
     nextFollowUp: string;
+    addedBy: string;
     owner: string;
     email: string;
     address: string;
@@ -97,6 +99,11 @@ export declare const LeadSchema: import("mongoose").Schema<Lead, import("mongoos
         __v: number;
     }> | undefined;
     nextFollowUp?: import("mongoose").SchemaDefinitionProperty<string, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
+        _id: import("mongoose").Types.ObjectId;
+    } & {
+        __v: number;
+    }> | undefined;
+    addedBy?: import("mongoose").SchemaDefinitionProperty<string, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
         _id: import("mongoose").Types.ObjectId;
     } & {
         __v: number;
@@ -199,3 +206,29 @@ export declare const LeadTargetSchema: import("mongoose").Schema<LeadTarget, imp
         id: string;
     }>> | undefined;
 }, LeadTarget>;
+export declare class CommissionTier {
+    id: string;
+    minSales: number;
+    rate: number;
+}
+export declare const CommissionTierSchema: import("mongoose").Schema<CommissionTier, import("mongoose").Model<CommissionTier, any, any, any, any, any, CommissionTier>, {}, {}, {}, {}, import("mongoose").DefaultSchemaOptions, CommissionTier, Document<unknown, {}, CommissionTier, {}, import("mongoose").DefaultSchemaOptions> & CommissionTier & {
+    _id: import("mongoose").Types.ObjectId;
+} & {
+    __v: number;
+}, {
+    id?: import("mongoose").SchemaDefinitionProperty<string, CommissionTier, Document<unknown, {}, CommissionTier, {}, import("mongoose").DefaultSchemaOptions> & CommissionTier & {
+        _id: import("mongoose").Types.ObjectId;
+    } & {
+        __v: number;
+    }> | undefined;
+    minSales?: import("mongoose").SchemaDefinitionProperty<number, CommissionTier, Document<unknown, {}, CommissionTier, {}, import("mongoose").DefaultSchemaOptions> & CommissionTier & {
+        _id: import("mongoose").Types.ObjectId;
+    } & {
+        __v: number;
+    }> | undefined;
+    rate?: import("mongoose").SchemaDefinitionProperty<number, CommissionTier, Document<unknown, {}, CommissionTier, {}, import("mongoose").DefaultSchemaOptions> & CommissionTier & {
+        _id: import("mongoose").Types.ObjectId;
+    } & {
+        __v: number;
+    }> | undefined;
+}, CommissionTier>;

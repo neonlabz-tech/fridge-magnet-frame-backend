@@ -21,6 +21,7 @@ exports.LeadsModule = LeadsModule = __decorate([
             mongoose_1.MongooseModule.forFeature([
                 { name: lead_schema_1.Lead.name, schema: lead_schema_1.LeadSchema },
                 { name: lead_schema_1.LeadTarget.name, schema: lead_schema_1.LeadTargetSchema },
+                { name: lead_schema_1.CommissionTier.name, schema: lead_schema_1.CommissionTierSchema },
             ]),
         ],
         controllers: [leads_controller_1.LeadsController],
