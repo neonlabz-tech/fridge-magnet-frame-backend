@@ -76,12 +76,6 @@ export class DeliveriesService {
     }
   }
 
-  /** Old records may be stored as 'MGD-1' or '#MGD-1': match both spellings. */
-  private ids(id: string): string[] {
-    const bare = id.replace(/^#/, '');
-    return [bare, `#${bare}`];
-  }
-
   options() {
     return { drivers: DRIVERS, timeSlots: TIME_SLOTS };
   }
