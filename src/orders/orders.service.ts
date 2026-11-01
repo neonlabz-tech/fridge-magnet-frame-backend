@@ -467,7 +467,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
               $in: Array.from(idSet),
             },
           })
-          .select('productId')
+          .select('productId primaryImage')
           .exec()
       : [];
 
@@ -478,17 +478,23 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
               $in: Array.from(codeSet),
             },
           })
-          .select('productId')
+          .select('productId primaryImage')
           .exec()
       : [];
 
     const skuById = new Map<string, string>();
+    // Product pictures, so every order item shows its real product image.
+    const imageById = new Map<string, string>();
+    const imageByCode = new Map<string, string>();
 
     for (const product of productsById) {
       skuById.set(
         String(product._id),
         product.productId,
       );
+      if (product.primaryImage?.secure_url) {
+        imageById.set(String(product._id), product.primaryImage.secure_url);
+      }
     }
 
     const skuByCode = new Map<string, string>();
@@ -498,6 +504,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         product.productId,
         product.productId,
       );
+      if (product.primaryImage?.secure_url) {
+        imageByCode.set(product.productId, product.primaryImage.secure_url);
+      }
     }
 
     return orders.map((order) => ({
@@ -508,9 +517,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
             skuByCode.get(item.productId)
           : undefined;
 
+        const image = item.productId
+          ? imageById.get(item.productId) ??
+            imageByCode.get(item.productId)
+          : undefined;
+
         return {
           ...item,
           sku: sku ?? null,
+          ...(!item.primaryImage && image ? { primaryImage: image } : {}),
         };
       }),
     }));
@@ -605,6 +620,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Staff orders may have no email: a unique internal placeholder (per phone) keeps the customer link.
+    const orderEmail =
+      (dto.email ?? '').trim() ||
+      `${this.usersService.normalisePhone(dto.phone)}${UsersService.NO_EMAIL_DOMAIN}`;
+    dto.email = orderEmail;
+
     const resolvedCustomerId =
       await this.resolveOrderCustomerId({
         email: dto.email,
@@ -638,6 +659,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       phone: dto.phone,
       shippingAddress: dto.shippingAddress ?? '',
       manual: dto.orderSource === 'direct',
+      customerId: dto.customerId,
     });
 
     try {
@@ -960,7 +982,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       return enriched;
     }
 
-    if (!order.email) {
+    if (!order.email || order.email.endsWith(UsersService.NO_EMAIL_DOMAIN)) {
       this.logger.warn(
         `[Orders] sendEmailNotification=true but order ${order.orderId} has no email address`,
       );

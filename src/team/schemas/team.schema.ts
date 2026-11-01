@@ -16,6 +16,7 @@ export const PAGE_HREFS = [
   '/dashboard/inventory',
   '/dashboard/deliveries',
   '/dashboard/leads',
+  '/dashboard/targets',
   '/dashboard/finance',
 ] as const;
 
@@ -73,6 +74,7 @@ export const PERMISSION_KEYS = [
   '/dashboard/inventory',
   '/dashboard/deliveries',
   '/dashboard/leads',
+  '/dashboard/targets',
   '/dashboard/finance#income',
   '/dashboard/finance#expense',
 ] as const;
@@ -98,6 +100,8 @@ export const WIDGET_KEYS = [
   'product-stock',
   'delivery-status',
   'leads',
+  'hide-product-cost', // hides Manufacture Unit Cost on the Products page
+  'hide-product-profit', // hides Unit Profit on the Products page
 ] as const;
 
 @Schema({ timestamps: true, toJSON: cleanJson() })

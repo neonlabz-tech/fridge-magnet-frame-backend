@@ -101,6 +101,10 @@ export class Lead {
 
   @Prop({ type: Object })
   order?: LeadOrderInfo;
+
+  /** Every sale (order) made for this client, one entry each, so monthly history is kept. */
+  @Prop({ type: [Object], default: undefined })
+  sales?: LeadOrderInfo[];
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);
