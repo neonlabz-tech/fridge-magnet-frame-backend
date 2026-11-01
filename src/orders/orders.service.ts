@@ -13,6 +13,7 @@ import axios from 'axios';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
+import { Delivery, DeliveryDocument } from '../deliveries/schemas/delivery.schema';
 import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 import {
   Transaction,
@@ -44,6 +45,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     @InjectModel(Transaction.name)
     private transactionModel: Model<TransactionDocument>,
+
+    @InjectModel(Delivery.name)
+    private deliveryModel: Model<DeliveryDocument>,
 
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
@@ -1031,11 +1035,33 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // Remove the customer's uploaded photos from Cloudflare R2 first, so they are not left behind.
+    try {
+      await this.purgeCustomerImages(order);
+    } catch (err) {
+      this.logger.warn(`[Orders] Photo cleanup failed while deleting ${order.orderId}: ${err}`);
+    }
+
+    // Give the product stock back (a cancelled order already did that).
+    if (this.normalizeOrderStatus(order.status) !== 'CANCELED') {
+      try {
+        await this.restoreStockForOrder(order.toObject());
+      } catch (err) {
+        this.logger.warn(`[Orders] Stock restore failed while deleting ${order.orderId}: ${err}`);
+      }
+    }
+
     await this.orderModel
       .deleteOne({ _id: order._id })
       .exec();
     await this.transactionModel
       .deleteOne({ id: this.incomeTxId(order.orderId) })
+      .exec();
+
+    // Remove the delivery record(s) of this order as well.
+    const bareId = String(order.orderId).replace(/^#/, '');
+    await this.deliveryModel
+      .deleteMany({ orderId: { $in: [bareId, `#${bareId}`] } })
       .exec();
 
     return {

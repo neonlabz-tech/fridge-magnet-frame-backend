@@ -49,9 +49,56 @@ export class TeamMember {
 
   @Prop({ required: true })
   passwordHash!: string;
+
+  /** When the password was last set or changed (never the password itself). */
+  @Prop({ type: Date })
+  passwordChangedAt?: Date;
+
+  /** true after an admin created the account / reset the password: must be changed at next sign-in. */
+  @Prop({ type: Boolean, default: false })
+  mustChangePassword!: boolean;
+
+  /** Bumped on every password change/reset: older sign-in tokens stop working. */
+  @Prop({ type: Number, default: 0 })
+  tokenVersion!: number;
 }
 
 export const TeamMemberSchema = SchemaFactory.createForClass(TeamMember);
+
+/** Permission rows: pages, with Finance split per tab. */
+export const PERMISSION_KEYS = [
+  '/dashboard/orders',
+  '/dashboard/customers',
+  '/dashboard/products',
+  '/dashboard/inventory',
+  '/dashboard/deliveries',
+  '/dashboard/leads',
+  '/dashboard/finance#income',
+  '/dashboard/finance#expense',
+] as const;
+
+/** What a role may do on a page. */
+export const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete'] as const;
+
+/** Overview widgets a role can be granted (mirrors the frontend WIDGET_OPTIONS). */
+export const WIDGET_KEYS = [
+  'stats', // old: all summary cards
+  'stat-orders',
+  'stat-revenue',
+  'stat-customers',
+  'stat-stock',
+  'stat-deliveries',
+  'stat-profit',
+  'revenue-trend',
+  'orders-per-day',
+  'income-expenses',
+  'top-products',
+  'order-status',
+  'payment-methods',
+  'product-stock',
+  'delivery-status',
+  'leads',
+] as const;
 
 @Schema({ timestamps: true, toJSON: cleanJson() })
 export class TeamRole {
@@ -64,6 +111,14 @@ export class TeamRole {
 
   @Prop({ type: [String], default: [] })
   pages!: string[];
+
+  /** { '/dashboard/orders': ['view','create'] } – pages with 'view' are mirrored in `pages`. */
+  @Prop({ type: Object, default: {} })
+  permissions!: Record<string, string[]>;
+
+  /** Overview widgets this role sees. Missing = every widget its pages allow. */
+  @Prop({ type: [String], default: undefined })
+  widgets?: string[];
 }
 
 export const TeamRoleSchema = SchemaFactory.createForClass(TeamRole);

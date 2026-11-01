@@ -29,6 +29,20 @@ export class Admin extends Document {
 
   @Prop({ type: Boolean, default: false })
   twoFactorEnabled?: boolean;
+
+  @Prop({ type: Date })
+  passwordChangedAt?: Date;
+
+  /** Bumped on every password change/reset: older sign-in tokens stop working. */
+  @Prop({ type: Number, default: 0 })
+  tokenVersion?: number;
+
+  /** SHA-256 of the one-time reset token (the raw token only exists in the e-mailed link). */
+  @Prop({ type: String })
+  passwordResetToken?: string;
+
+  @Prop({ type: Date })
+  passwordResetExpires?: Date;
 }
 
 export const AdminSchema = SchemaFactory.createForClass(Admin);
