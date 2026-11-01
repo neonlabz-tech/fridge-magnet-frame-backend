@@ -262,7 +262,7 @@ let TeamService = class TeamService {
                 username: member.username,
                 name: member.name,
                 role: 'member',
-                teamName: team_schema_1.TEAM_NAME,
+                teamName: member.role || team_schema_1.TEAM_NAME,
             },
             allowedPages: await this.allowedPages(member.role),
         };

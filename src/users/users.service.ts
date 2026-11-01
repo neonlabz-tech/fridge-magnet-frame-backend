@@ -1,6 +1,7 @@
 import {
   Injectable,
   ConflictException,
+  BadRequestException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -256,7 +257,7 @@ export class UsersService {
       recordId: user._id,
       customerId: user.customerId ?? '',
       customerName: user.fullName ?? user.email?.split('@')[0] ?? 'Customer',
-      emailAddress: user.email,
+      emailAddress: String(user.email ?? '').endsWith(UsersService.NO_EMAIL_DOMAIN) ? '' : user.email,
       phoneNumber: user.phoneNumber ?? 'Not provided',
       customerAddress: user.customerAddress ?? 'Not provided',
       isActive: user.isActive === true,
@@ -282,13 +283,39 @@ export class UsersService {
 
   // ── Customer CRUD (called by CustomersController) ─────────────────────────
 
+  /** Manual customers may have no email; a unique internal placeholder keeps the record valid. */
+  private static readonly NO_EMAIL_DOMAIN = '@manual.magnify.local';
+
+  private async assertPhoneOk(phone: string, exceptId?: string) {
+    if (!/^\d{10}$/.test(phone ?? '')) {
+      throw new BadRequestException('Phone number must contain exactly 10 digits');
+    }
+    const clash = await this.userModel.findOne({ phoneNumber: phone, role: 'user' }).exec();
+    if (clash && (clash._id as any).toString() !== exceptId) {
+      throw new ConflictException(
+        `This phone number is already used by customer ${clash.customerId || clash.fullName || ''}`.trim(),
+      );
+    }
+  }
+
   async createCustomer(dto: CreateCustomerDto): Promise<any> {
-    const email = dto.emailAddress.toLowerCase();
+    if (!dto.customerName || dto.customerName.trim().length < 2) {
+      throw new BadRequestException('Full name is required');
+    }
+    if (!dto.customerAddress || dto.customerAddress.trim().length < 5) {
+      throw new BadRequestException('Shipping address is required');
+    }
+    await this.assertPhoneOk(dto.phoneNumber);
+    const given = (dto.emailAddress ?? '').trim();
+    if (given && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(given)) {
+      throw new BadRequestException('Email should be in a valid format like user@example.com');
+    }
+    const email = (given || `${dto.phoneNumber}${UsersService.NO_EMAIL_DOMAIN}`).toLowerCase();
 
     const existing = await this.findByEmail(email);
     if (existing) {
       throw new ConflictException(
-        `Customer with email "${dto.emailAddress}" already exists`,
+        `Customer with email "${email}" already exists`,
       );
     }
 
@@ -363,6 +390,10 @@ export class UsersService {
           `Customer with email "${dto.emailAddress}" already exists`,
         );
       }
+    }
+
+    if (dto.phoneNumber !== undefined && dto.phoneNumber !== existing.phoneNumber) {
+      await this.assertPhoneOk(dto.phoneNumber, (existing._id as any).toString());
     }
 
     const fields: Record<string, any> = {};

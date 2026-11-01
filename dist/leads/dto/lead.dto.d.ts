@@ -10,6 +10,7 @@ export declare class CreateLeadDto {
     status?: string;
     nextFollowUp?: string;
     owner?: string;
+    addedBy?: string;
     email?: string;
     address?: string;
     notes?: string;
@@ -31,6 +32,7 @@ export declare class UpdateLeadDto {
     status?: string;
     nextFollowUp?: string;
     owner?: string;
+    addedBy?: string;
     email?: string;
     address?: string;
     notes?: string;
@@ -64,4 +66,8 @@ export declare class UpsertTargetDto {
     salesAmount: number;
     dailyCalls: number;
     dailyLeads: number;
+}
+export declare class UpsertCommissionTierDto {
+    minSales: number;
+    rate: number;
 }

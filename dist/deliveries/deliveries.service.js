@@ -123,8 +123,12 @@ let DeliveriesService = DeliveriesService_1 = class DeliveriesService {
         }));
         return { data, total: data.length };
     }
+    ids(id) {
+        const bare = id.replace(/^#/, '');
+        return [bare, `#${bare}`];
+    }
     async findOne(id) {
-        const delivery = await this.model.findOne({ id }).exec();
+        const delivery = await this.model.findOne({ id: { $in: this.ids(id) } }).exec();
         if (!delivery)
             throw new common_1.NotFoundException(`Delivery ${id} not found`);
         return delivery;
@@ -138,7 +142,7 @@ let DeliveriesService = DeliveriesService_1 = class DeliveriesService {
     }
     async update(id, dto) {
         const delivery = await this.model
-            .findOneAndUpdate({ id }, { $set: dto }, { new: true, runValidators: true })
+            .findOneAndUpdate({ id: { $in: this.ids(id) } }, { $set: dto }, { new: true, runValidators: true })
             .exec();
         if (!delivery)
             throw new common_1.NotFoundException(`Delivery ${id} not found`);
@@ -162,7 +166,7 @@ let DeliveriesService = DeliveriesService_1 = class DeliveriesService {
         };
     }
     async remove(id) {
-        const delivery = await this.model.findOneAndDelete({ id }).exec();
+        const delivery = await this.model.findOneAndDelete({ id: { $in: this.ids(id) } }).exec();
         if (!delivery)
             throw new common_1.NotFoundException(`Delivery ${id} not found`);
         return { message: 'Delivery deleted successfully', data: delivery };

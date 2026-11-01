@@ -19,9 +19,10 @@ const mongoose_2 = require("mongoose");
 const lead_schema_1 = require("./schemas/lead.schema");
 const clean_json_1 = require("../common/utils/clean-json");
 let LeadsService = class LeadsService {
-    constructor(model, targetModel) {
+    constructor(model, targetModel, tierModel) {
         this.model = model;
         this.targetModel = targetModel;
+        this.tierModel = tierModel;
     }
     systemEntry(by, notes) {
         return {
@@ -60,20 +61,38 @@ let LeadsService = class LeadsService {
             throw new common_1.NotFoundException(`Lead ${id} not found`);
         return lead;
     }
+    digits(p) {
+        return String(p ?? '').replace(/\D/g, '');
+    }
+    async assertPhoneFree(phone, exceptId) {
+        const d = this.digits(phone);
+        if (!d)
+            return;
+        const clash = await this.model
+            .findOne({ phone: d, ...(exceptId ? { id: { $ne: exceptId } } : {}) }, 'id')
+            .exec();
+        if (clash) {
+            throw new common_1.BadRequestException(`This phone number is already uploaded in lead ${clash.id}.`);
+        }
+    }
     async create(dto) {
+        await this.assertPhoneFree(dto.phone);
         const ids = (await this.model.find({}, 'id').exec()).map((l) => l.id);
         const id = dto.id && !ids.includes(dto.id) ? dto.id : (0, clean_json_1.nextSequenceId)(ids, 'ML', 3);
         const { actor, ...fields } = dto;
         void actor;
         const lead = await this.model.create({
             ...fields,
+            phone: this.digits(fields.phone),
             id,
             dateAdded: dto.dateAdded ?? new Date().toISOString(),
         });
         return { message: 'Lead created successfully', data: lead };
     }
     async importMany(dto) {
-        const used = new Set((await this.model.find({}, 'id').exec()).map((l) => l.id));
+        const existing = await this.model.find({}, 'id phone').exec();
+        const used = new Set(existing.map((l) => l.id));
+        const phones = new Set(existing.map((l) => this.digits(l.phone)).filter(Boolean));
         const ids = [...used];
         const base = Date.now();
         const docs = [];
@@ -81,15 +100,19 @@ let LeadsService = class LeadsService {
         for (const row of dto.leads) {
             const { actor, ...fields } = row;
             void actor;
-            if (row.id && used.has(row.id)) {
+            const phone = this.digits(row.phone);
+            if ((row.id && used.has(row.id)) || (phone && phones.has(phone))) {
                 skipped += 1;
                 continue;
             }
+            if (phone)
+                phones.add(phone);
             const id = row.id || (0, clean_json_1.nextSequenceId)(ids, 'ML', 3);
             used.add(id);
             ids.push(id);
             docs.push({
                 ...fields,
+                phone,
                 id,
                 dateAdded: row.dateAdded ?? new Date().toISOString(),
                 createdAt: new Date(base + docs.length),
@@ -106,6 +129,11 @@ let LeadsService = class LeadsService {
     async update(id, dto) {
         const lead = await this.findOne(id);
         const { actor, ...fields } = dto;
+        if (fields.phone !== undefined) {
+            if (this.digits(fields.phone) !== this.digits(lead.phone))
+                await this.assertPhoneFree(fields.phone, id);
+            fields.phone = this.digits(fields.phone);
+        }
         if (fields.owner !== undefined && fields.owner !== lead.owner) {
             lead.history.push(this.systemEntry(actor ?? 'admin', `Reassigned from ${lead.owner || 'Unassigned'} to ${fields.owner || 'Unassigned'}.`));
             lead.markModified('history');
@@ -210,13 +238,52 @@ let LeadsService = class LeadsService {
             .exec();
         return { message: 'Targets saved successfully', data: target };
     }
+    async findTiers() {
+        if ((await this.tierModel.estimatedDocumentCount().exec()) === 0) {
+            await this.tierModel.insertMany([
+                { id: 'TIER-001', minSales: 0, rate: 0 },
+                { id: 'TIER-002', minSales: 270000, rate: 2 },
+                { id: 'TIER-003', minSales: 310000, rate: 3 },
+            ]);
+        }
+        const data = await this.tierModel.find().sort({ minSales: 1 }).exec();
+        return { data };
+    }
+    async createTier(dto) {
+        if (await this.tierModel.exists({ minSales: dto.minSales })) {
+            throw new common_1.BadRequestException('A tier starting at this sales amount already exists.');
+        }
+        const ids = (await this.tierModel.find({}, 'id').exec()).map((t) => t.id);
+        const id = (0, clean_json_1.nextSequenceId)(ids, 'TIER-', 3);
+        const tier = await this.tierModel.create({ ...dto, id });
+        return { message: 'Commission tier added', data: tier };
+    }
+    async updateTier(id, dto) {
+        if (await this.tierModel.exists({ minSales: dto.minSales, id: { $ne: id } })) {
+            throw new common_1.BadRequestException('A tier starting at this sales amount already exists.');
+        }
+        const tier = await this.tierModel
+            .findOneAndUpdate({ id }, { $set: dto }, { new: true, runValidators: true })
+            .exec();
+        if (!tier)
+            throw new common_1.NotFoundException(`Commission tier ${id} not found`);
+        return { message: 'Commission tier updated', data: tier };
+    }
+    async removeTier(id) {
+        const tier = await this.tierModel.findOneAndDelete({ id }).exec();
+        if (!tier)
+            throw new common_1.NotFoundException(`Commission tier ${id} not found`);
+        return { message: 'Commission tier deleted', data: tier };
+    }
 };
 exports.LeadsService = LeadsService;
 exports.LeadsService = LeadsService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(lead_schema_1.Lead.name)),
     __param(1, (0, mongoose_1.InjectModel)(lead_schema_1.LeadTarget.name)),
+    __param(2, (0, mongoose_1.InjectModel)(lead_schema_1.CommissionTier.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model,
         mongoose_2.Model])
 ], LeadsService);
 //# sourceMappingURL=leads.service.js.map

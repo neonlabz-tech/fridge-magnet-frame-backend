@@ -26,6 +26,18 @@ let LeadsController = class LeadsController {
     findTargets() {
         return this.leadsService.findTargets();
     }
+    findTiers() {
+        return this.leadsService.findTiers();
+    }
+    createTier(dto) {
+        return this.leadsService.createTier(dto);
+    }
+    updateTier(id, dto) {
+        return this.leadsService.updateTier(id, dto);
+    }
+    removeTier(id) {
+        return this.leadsService.removeTier(id);
+    }
     upsertTarget(username, dto) {
         return this.leadsService.upsertTarget(username, dto);
     }
@@ -74,6 +86,34 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], LeadsController.prototype, "findTargets", null);
+__decorate([
+    (0, common_1.Get)('commission-tiers'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], LeadsController.prototype, "findTiers", null);
+__decorate([
+    (0, common_1.Post)('commission-tiers'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [lead_dto_1.UpsertCommissionTierDto]),
+    __metadata("design:returntype", void 0)
+], LeadsController.prototype, "createTier", null);
+__decorate([
+    (0, common_1.Patch)('commission-tiers/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, lead_dto_1.UpsertCommissionTierDto]),
+    __metadata("design:returntype", void 0)
+], LeadsController.prototype, "updateTier", null);
+__decorate([
+    (0, common_1.Delete)('commission-tiers/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], LeadsController.prototype, "removeTier", null);
 __decorate([
     (0, common_1.Put)('targets/:username'),
     __param(0, (0, common_1.Param)('username')),

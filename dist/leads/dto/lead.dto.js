@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpsertTargetDto = exports.ReassignLeadsDto = exports.ConvertLeadDto = exports.AddFollowUpDto = exports.UpdateLeadDto = exports.ImportLeadsDto = exports.CreateLeadDto = void 0;
+exports.UpsertCommissionTierDto = exports.UpsertTargetDto = exports.ReassignLeadsDto = exports.ConvertLeadDto = exports.AddFollowUpDto = exports.UpdateLeadDto = exports.ImportLeadsDto = exports.CreateLeadDto = void 0;
 const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
 const lead_schema_1 = require("../schemas/lead.schema");
@@ -71,6 +71,11 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateLeadDto.prototype, "owner", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateLeadDto.prototype, "addedBy", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
@@ -166,6 +171,11 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], UpdateLeadDto.prototype, "owner", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], UpdateLeadDto.prototype, "addedBy", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
@@ -307,4 +317,20 @@ __decorate([
     (0, class_validator_1.Min)(0),
     __metadata("design:type", Number)
 ], UpsertTargetDto.prototype, "dailyLeads", void 0);
+class UpsertCommissionTierDto {
+}
+exports.UpsertCommissionTierDto = UpsertCommissionTierDto;
+__decorate([
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], UpsertCommissionTierDto.prototype, "minSales", void 0);
+__decorate([
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    (0, class_validator_1.Max)(100),
+    __metadata("design:type", Number)
+], UpsertCommissionTierDto.prototype, "rate", void 0);
 //# sourceMappingURL=lead.dto.js.map

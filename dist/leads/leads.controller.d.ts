@@ -1,5 +1,5 @@
 import { LeadsService } from './leads.service';
-import { AddFollowUpDto, ConvertLeadDto, CreateLeadDto, ImportLeadsDto, ReassignLeadsDto, UpdateLeadDto, UpsertTargetDto } from './dto/lead.dto';
+import { AddFollowUpDto, ConvertLeadDto, CreateLeadDto, ImportLeadsDto, ReassignLeadsDto, UpdateLeadDto, UpsertCommissionTierDto, UpsertTargetDto } from './dto/lead.dto';
 export declare class LeadsController {
     private readonly leadsService;
     constructor(leadsService: LeadsService);
@@ -18,6 +18,37 @@ export declare class LeadsController {
             }> & {
                 __v: number;
             };
+        };
+    }>;
+    findTiers(): Promise<{
+        data: (import("mongoose").Document<unknown, {}, import("./schemas/lead.schema").CommissionTierDocument, {}, import("mongoose").DefaultSchemaOptions> & import("./schemas/lead.schema").CommissionTier & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
+            _id: import("mongoose").Types.ObjectId;
+        }> & {
+            __v: number;
+        })[];
+    }>;
+    createTier(dto: UpsertCommissionTierDto): Promise<{
+        message: string;
+        data: import("mongoose").Document<unknown, {}, import("./schemas/lead.schema").CommissionTierDocument, {}, import("mongoose").DefaultSchemaOptions> & import("./schemas/lead.schema").CommissionTier & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
+            _id: import("mongoose").Types.ObjectId;
+        }> & {
+            __v: number;
+        };
+    }>;
+    updateTier(id: string, dto: UpsertCommissionTierDto): Promise<{
+        message: string;
+        data: import("mongoose").Document<unknown, {}, import("./schemas/lead.schema").CommissionTierDocument, {}, import("mongoose").DefaultSchemaOptions> & import("./schemas/lead.schema").CommissionTier & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
+            _id: import("mongoose").Types.ObjectId;
+        }> & {
+            __v: number;
+        };
+    }>;
+    removeTier(id: string): Promise<{
+        message: string;
+        data: import("mongoose").Document<unknown, {}, import("./schemas/lead.schema").CommissionTierDocument, {}, import("mongoose").DefaultSchemaOptions> & import("./schemas/lead.schema").CommissionTier & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
+            _id: import("mongoose").Types.ObjectId;
+        }> & {
+            __v: number;
         };
     }>;
     upsertTarget(username: string, dto: UpsertTargetDto): Promise<{

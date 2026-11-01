@@ -142,6 +142,12 @@ export class DeliveriesService {
     return { data, total: data.length };
   }
 
+  /** Ids are stored as MGD-260913; accept the #-prefixed spelling too. */
+  private ids(id: string): string[] {
+    const bare = id.replace(/^#/, '');
+    return [bare, `#${bare}`];
+  }
+
   async findOne(id: string) {
     const delivery = await this.model.findOne({ id: { $in: this.ids(id) } }).exec();
     if (!delivery) throw new NotFoundException(`Delivery ${id} not found`);

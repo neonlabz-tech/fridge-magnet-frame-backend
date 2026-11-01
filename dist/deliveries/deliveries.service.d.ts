@@ -43,6 +43,7 @@ export declare class DeliveriesService {
         }[];
         total: number;
     }>;
+    private ids;
     findOne(id: string): Promise<import("mongoose").Document<unknown, {}, DeliveryDocument, {}, import("mongoose").DefaultSchemaOptions> & Delivery & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {

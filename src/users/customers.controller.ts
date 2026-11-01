@@ -26,6 +26,10 @@ export class CustomersController {
       customerAddress: input.customerAddress ?? input.address,
     };
 
+    if (typeof normalized.emailAddress === 'string' && !normalized.emailAddress.trim()) {
+      normalized.emailAddress = undefined; // email is optional
+    }
+
     return Object.fromEntries(
       Object.entries(normalized).filter(([, value]) => value !== undefined),
     ) as CreateCustomerDto | UpdateCustomerDto;

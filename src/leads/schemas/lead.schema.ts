@@ -4,8 +4,20 @@ import { cleanJson } from '../../common/utils/clean-json';
 
 export type LeadDocument = Lead & Document;
 export type LeadTargetDocument = LeadTarget & Document;
+export type CommissionTierDocument = CommissionTier & Document;
 
-export const LEAD_STATUSES = ['New', 'Connected', 'Follow Up', 'Converted', 'Lost'] as const;
+export const LEAD_STATUSES = [
+  'New',
+  'Connected',
+  'Interested',
+  'Not interested',
+  'Call back',
+  'Order discussion',
+  'No response',
+  'Follow Up',
+  'Lost',
+  'Converted',
+] as const;
 
 export interface FollowUp {
   n: number;
@@ -63,6 +75,10 @@ export class Lead {
   @Prop({ default: '' })
   nextFollowUp!: string;
 
+  /** Who added the lead (username, or 'admin'). */
+  @Prop({ default: '' })
+  addedBy!: string;
+
   /** Username of the assigned operator, or '' when unassigned. */
   @Prop({ default: '' })
   owner!: string;
@@ -109,3 +125,18 @@ export class LeadTarget {
 }
 
 export const LeadTargetSchema = SchemaFactory.createForClass(LeadTarget);
+
+/** A commission slab: monthly verified paid sales from `minSales` upward earn `rate` %. */
+@Schema({ timestamps: true, toJSON: cleanJson() })
+export class CommissionTier {
+  @Prop({ required: true, unique: true })
+  id!: string;
+
+  @Prop({ required: true, min: 0 })
+  minSales!: number;
+
+  @Prop({ required: true, min: 0, max: 100 })
+  rate!: number;
+}
+
+export const CommissionTierSchema = SchemaFactory.createForClass(CommissionTier);
