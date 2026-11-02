@@ -272,7 +272,7 @@ export class UsersService {
     };
   }
 
-  private normalisePhone(raw?: string): string {
+  normalisePhone(raw?: string): string {
     if (!raw) return '0000000000';
     const digits = raw.replace(/\D/g, '');
     if (digits.startsWith('94') && digits.length === 11) {
@@ -284,7 +284,7 @@ export class UsersService {
   // ── Customer CRUD (called by CustomersController) ─────────────────────────
 
   /** Manual customers may have no email; a unique internal placeholder keeps the record valid. */
-  private static readonly NO_EMAIL_DOMAIN = '@manual.magnify.local';
+  static readonly NO_EMAIL_DOMAIN = '@manual.magnify.local';
 
   private async assertPhoneOk(phone: string, exceptId?: string) {
     if (!/^\d{10}$/.test(phone ?? '')) {
@@ -355,6 +355,16 @@ export class UsersService {
     const total = allUsers.length;
     const skip = (page - 1) * limit;
     const pageUsers = allUsers.slice(skip, skip + limit);
+    // Older customers saved without an id get one now, so the list never shows the database id.
+    for (const u of pageUsers) {
+      if (!u.customerId) {
+        try {
+          u.customerId = await this.generateAndAssignCustomerId((u._id as any).toString());
+        } catch {
+          /* keep going - the list still loads */
+        }
+      }
+    }
     const stats = await this.orderStatsByEmail(pageUsers.map((u) => u.email));
     const data = pageUsers.map((u) =>
       this.serializeCustomer(u, stats.get(String(u.email ?? '').toLowerCase())),
@@ -510,9 +520,13 @@ export class UsersService {
     phone?: string;
     shippingAddress: string;
     manual?: boolean;
+    /** Client id of a converted lead (CL-001): used as the new customer's id. */
+    customerId?: string;
   }): Promise<any> {
-    const email = order.email.trim().toLowerCase();
     const phoneNumber = this.normalisePhone(order.phone);
+    // Email is optional on staff orders: a unique internal placeholder keeps the customer record valid.
+    const email =
+      (order.email ?? '').trim().toLowerCase() || `${phoneNumber}${UsersService.NO_EMAIL_DOMAIN}`;
 
     const user = await this.findByEmail(email);
 
@@ -529,11 +543,16 @@ export class UsersService {
         fields,
       );
 
+      if (!user.customerId) {
+        await this.assignOrderCustomerId((user._id as any).toString(), order.customerId);
+        return this.serializeCustomer(await this.findById((user._id as any).toString()));
+      }
+
       return this.serializeCustomer(updated);
     }
 
     const randomPassword = crypto.randomUUID();
-    await this.create(
+    const created = await this.create(
       email,
       randomPassword,
       'user',
@@ -546,6 +565,22 @@ export class UsersService {
       } as any,
     );
 
+    // Every customer gets an id right away (never shown as the long database id).
+    await this.assignOrderCustomerId((created._id as any).toString(), order.customerId);
+
     return null;
+  }
+
+  /** Use the lead's client id (CL-001) when it is free, otherwise generate #CUST-xxxx. */
+  private async assignOrderCustomerId(userId: string, wanted?: string): Promise<void> {
+    const id = String(wanted ?? '').replace(/^#+/, '').trim().toUpperCase();
+    if (/^CL-\d+$/.test(id)) {
+      const clash = await this.userModel.findOne({ customerId: id }).exec();
+      if (!clash) {
+        await this.userModel.updateOne({ _id: userId }, { $set: { customerId: id } }).exec();
+        return;
+      }
+    }
+    await this.generateAndAssignCustomerId(userId);
   }
 }

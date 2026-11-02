@@ -56,6 +56,19 @@ export class AuthController {
 		return this.authService.resetPassword(resetPasswordDto);
 	}
 
+	/** Administrator password reset (e-mailed, single-use, 15 minute link). */
+	@Post('admin/forgot-password')
+	@HttpCode(200)
+	async adminForgotPassword(@Body() dto: ForgotPasswordDto) {
+		return this.authService.adminForgotPassword(dto);
+	}
+
+	@Post('admin/reset-password')
+	@HttpCode(200)
+	async adminResetPassword(@Body() dto: ResetPasswordDto) {
+		return this.authService.adminResetPassword(dto);
+	}
+
 	@Get('activate')
 	@HttpCode(200)
 	async activateAccount(@Query('token') token: string) {

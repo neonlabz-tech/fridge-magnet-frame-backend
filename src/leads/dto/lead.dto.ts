@@ -89,6 +89,10 @@ export class CreateLeadDto {
   @IsObject()
   order?: Record<string, any>;
 
+  @IsOptional()
+  @IsArray()
+  sales?: Record<string, any>[];
+
   /** Who is making the change; used for audit entries. */
   @IsOptional()
   @IsString()
@@ -169,6 +173,10 @@ export class UpdateLeadDto {
   @IsOptional()
   @IsObject()
   order?: Record<string, any>;
+
+  @IsOptional()
+  @IsArray()
+  sales?: Record<string, any>[];
 
   @IsOptional()
   @IsString()

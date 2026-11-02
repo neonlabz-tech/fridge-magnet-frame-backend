@@ -13,6 +13,7 @@ import axios from 'axios';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
+import { Delivery, DeliveryDocument } from '../deliveries/schemas/delivery.schema';
 import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 import {
   Transaction,
@@ -44,6 +45,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     @InjectModel(Transaction.name)
     private transactionModel: Model<TransactionDocument>,
+
+    @InjectModel(Delivery.name)
+    private deliveryModel: Model<DeliveryDocument>,
 
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
@@ -463,7 +467,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
               $in: Array.from(idSet),
             },
           })
-          .select('productId')
+          .select('productId primaryImage')
           .exec()
       : [];
 
@@ -474,17 +478,23 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
               $in: Array.from(codeSet),
             },
           })
-          .select('productId')
+          .select('productId primaryImage')
           .exec()
       : [];
 
     const skuById = new Map<string, string>();
+    // Product pictures, so every order item shows its real product image.
+    const imageById = new Map<string, string>();
+    const imageByCode = new Map<string, string>();
 
     for (const product of productsById) {
       skuById.set(
         String(product._id),
         product.productId,
       );
+      if (product.primaryImage?.secure_url) {
+        imageById.set(String(product._id), product.primaryImage.secure_url);
+      }
     }
 
     const skuByCode = new Map<string, string>();
@@ -494,6 +504,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         product.productId,
         product.productId,
       );
+      if (product.primaryImage?.secure_url) {
+        imageByCode.set(product.productId, product.primaryImage.secure_url);
+      }
     }
 
     return orders.map((order) => ({
@@ -504,9 +517,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
             skuByCode.get(item.productId)
           : undefined;
 
+        const image = item.productId
+          ? imageById.get(item.productId) ??
+            imageByCode.get(item.productId)
+          : undefined;
+
         return {
           ...item,
           sku: sku ?? null,
+          ...(!item.primaryImage && image ? { primaryImage: image } : {}),
         };
       }),
     }));
@@ -601,6 +620,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Staff orders may have no email: a unique internal placeholder (per phone) keeps the customer link.
+    const orderEmail =
+      (dto.email ?? '').trim() ||
+      `${this.usersService.normalisePhone(dto.phone)}${UsersService.NO_EMAIL_DOMAIN}`;
+    dto.email = orderEmail;
+
     const resolvedCustomerId =
       await this.resolveOrderCustomerId({
         email: dto.email,
@@ -634,6 +659,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       phone: dto.phone,
       shippingAddress: dto.shippingAddress ?? '',
       manual: dto.orderSource === 'direct',
+      customerId: dto.customerId,
     });
 
     try {
@@ -956,7 +982,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       return enriched;
     }
 
-    if (!order.email) {
+    if (!order.email || order.email.endsWith(UsersService.NO_EMAIL_DOMAIN)) {
       this.logger.warn(
         `[Orders] sendEmailNotification=true but order ${order.orderId} has no email address`,
       );
@@ -1031,11 +1057,33 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // Remove the customer's uploaded photos from Cloudflare R2 first, so they are not left behind.
+    try {
+      await this.purgeCustomerImages(order);
+    } catch (err) {
+      this.logger.warn(`[Orders] Photo cleanup failed while deleting ${order.orderId}: ${err}`);
+    }
+
+    // Give the product stock back (a cancelled order already did that).
+    if (this.normalizeOrderStatus(order.status) !== 'CANCELED') {
+      try {
+        await this.restoreStockForOrder(order.toObject());
+      } catch (err) {
+        this.logger.warn(`[Orders] Stock restore failed while deleting ${order.orderId}: ${err}`);
+      }
+    }
+
     await this.orderModel
       .deleteOne({ _id: order._id })
       .exec();
     await this.transactionModel
       .deleteOne({ id: this.incomeTxId(order.orderId) })
+      .exec();
+
+    // Remove the delivery record(s) of this order as well.
+    const bareId = String(order.orderId).replace(/^#/, '');
+    await this.deliveryModel
+      .deleteMany({ orderId: { $in: [bareId, `#${bareId}`] } })
       .exec();
 
     return {
