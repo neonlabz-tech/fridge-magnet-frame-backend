@@ -14,6 +14,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as crypto from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
+import { assertStrongPassword } from '../common/utils/password';
 
 @Injectable()
 export class AuthService {
@@ -55,6 +56,7 @@ export class AuthService {
         email: admin.email,
         sub: admin._id.toString(),
         role: 'admin',
+        tv: admin.tokenVersion ?? 0,
       });
 
       return {
@@ -306,6 +308,68 @@ export class AuthService {
     return { message: 'Password reset successful' };
   }
 
+  /* ---------- Administrator: e-mailed, single-use reset link ---------- */
+
+  async adminForgotPassword(dto: ForgotPasswordDto) {
+    const generic = { message: 'If that email exists, a reset link has been sent.' };
+    const admin = await this.adminModel.findOne({ email: dto.email.toLowerCase() }).exec();
+    if (!admin) return generic;
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    admin.passwordResetToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    admin.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    await admin.save();
+
+    const dashboardUrl = (
+      this.configService.get<string>('ADMIN_DASHBOARD_URL') ??
+      (process.env.NODE_ENV === 'production' ? 'https://admin.magnifycreation.lk' : 'http://localhost:3001')
+    ).replace(/\/+$/, '');
+    const resetLink = `${dashboardUrl}/reset-password?token=${rawToken}`;
+
+    try {
+      await this.mailService.sendMail({
+        to: admin.email,
+        subject: 'Reset your Magnify admin password',
+        text:
+          `We received a request to reset your Magnify admin password.\n\n` +
+          `Use this link (valid for 15 minutes, works only once):\n\n${resetLink}\n\n` +
+          `If you did not request this, you can ignore this email.`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
+            <h2 style="color:#002B73;margin-bottom:8px">Magnify - Admin password reset</h2>
+            <p style="color:#434652">Click the button below to set a new password. The link is valid for 15 minutes and can be used only once.</p>
+            <p style="margin:24px 0">
+              <a href="${resetLink}" style="background:#002B73;color:#ffffff;padding:12px 24px;border-radius:4px;text-decoration:none;display:inline-block">Reset your password</a>
+            </p>
+            <p style="font-size:13px;color:#9CA3AF">Or paste this link into your browser:<br/><span style="word-break:break-all;color:#434652">${resetLink}</span></p>
+            <p style="font-size:12px;color:#9CA3AF">If you did not request this, you can safely ignore this email.</p>
+          </div>`,
+      });
+    } catch {
+      admin.passwordResetToken = undefined;
+      admin.passwordResetExpires = undefined;
+      await admin.save();
+      throw new BadRequestException('Unable to send reset email right now');
+    }
+    return generic;
+  }
+
+  async adminResetPassword(dto: ResetPasswordDto) {
+    assertStrongPassword(dto.newPassword);
+    const hashed = crypto.createHash('sha256').update(dto.token).digest('hex');
+    const admin = await this.adminModel.findOne({ passwordResetToken: hashed }).exec();
+    if (!admin || !admin.passwordResetExpires || admin.passwordResetExpires < new Date()) {
+      throw new BadRequestException('This reset link is invalid or has expired');
+    }
+    admin.password = await bcrypt.hash(dto.newPassword, 10);
+    admin.passwordChangedAt = new Date();
+    admin.tokenVersion = (admin.tokenVersion ?? 0) + 1; // revoke every existing sign-in
+    admin.passwordResetToken = undefined; // single use
+    admin.passwordResetExpires = undefined;
+    await admin.save();
+    return { message: 'Password reset successful. You can sign in with your new password.' };
+  }
+
   private serializeProfile(user: any) {
     return {
       id: user._id,
@@ -321,6 +385,7 @@ export class AuthService {
       customerAddress: user.customerAddress || '',
       customerId: user.customerId || '',
       createdAt: user.createdAt,
+      passwordChangedAt: user.passwordChangedAt ?? null,
     };
   }
 
@@ -355,6 +420,8 @@ export class AuthService {
       }
     }
 
+    let newAdminToken: string | undefined;
+
     // Handle an optional password change.
     if (dto.newPassword) {
       if (!dto.currentPassword) {
@@ -372,10 +439,21 @@ export class AuthService {
         throw new BadRequestException('Current password is incorrect');
       }
 
+      if (isAdmin) assertStrongPassword(dto.newPassword);
+
       const hashed = await bcrypt.hash(dto.newPassword, 10);
       if (isAdmin) {
-        user.password = hashed;
-        await user.save();
+        const adminDoc = user as unknown as Admin;
+        adminDoc.password = hashed;
+        adminDoc.passwordChangedAt = new Date();
+        adminDoc.tokenVersion = (adminDoc.tokenVersion ?? 0) + 1; // other sign-ins stop working
+        await adminDoc.save();
+        newAdminToken = this.jwtService.sign({
+          email: adminDoc.email,
+          sub: adminDoc._id.toString(),
+          role: 'admin',
+          tv: adminDoc.tokenVersion,
+        });
       } else {
         await this.usersService.updatePassword(userId, hashed);
       }
@@ -417,6 +495,8 @@ export class AuthService {
     return {
       message: 'Profile updated successfully',
       user: this.serializeProfile(updated),
+      // After an admin password change the old token is revoked: hand back a fresh one.
+      ...(newAdminToken ? { token: newAdminToken, access_token: newAdminToken } : {}),
     };
   }
 

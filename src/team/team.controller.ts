@@ -9,9 +9,13 @@ import {
   Post,
   Put,
   Query,
+  Request,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { TeamService } from './team.service';
 import {
+  ChangePasswordDto,
   CreateMemberDto,
   CreateRoleDto,
   MemberLoginDto,
@@ -28,6 +32,24 @@ export class TeamController {
   @HttpCode(200)
   login(@Body() dto: MemberLoginDto) {
     return this.teamService.login(dto);
+  }
+
+  /** The signed-in member changes their own password. */
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  @HttpCode(200)
+  changePassword(
+    @Request() req: { user: { userId: string; role?: string } },
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.teamService.changeOwnPassword(req.user.userId, dto);
+  }
+
+  /** Is this sign-in still valid? (401 after a password change/reset or when the account is disabled.) */
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  me(@Request() req: { user: { userId: string } }) {
+    return this.teamService.me(req.user.userId);
   }
 
   /* roles */

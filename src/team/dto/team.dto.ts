@@ -3,12 +3,13 @@ import {
   IsEmail,
   IsIn,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
-  MinLength,
 } from 'class-validator';
-import { PAGE_HREFS } from '../schemas/team.schema';
+import { PAGE_HREFS, WIDGET_KEYS } from '../schemas/team.schema';
+import { STRONG_PASSWORD_MESSAGE, STRONG_PASSWORD_RX } from '../../common/utils/password';
 
 const USERNAME_RX = /^[a-z0-9._-]{3,}$/;
 
@@ -36,7 +37,7 @@ export class CreateMemberDto {
   username?: string;
 
   @IsString()
-  @MinLength(6)
+  @Matches(STRONG_PASSWORD_RX, { message: STRONG_PASSWORD_MESSAGE })
   password!: string;
 }
 
@@ -68,7 +69,7 @@ export class UpdateMemberDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @Matches(STRONG_PASSWORD_RX, { message: STRONG_PASSWORD_MESSAGE })
   password?: string;
 
   @IsOptional()
@@ -77,9 +78,25 @@ export class UpdateMemberDto {
 }
 
 export class ResetPasswordDto {
+  /** Optional: when empty the server generates a temporary password. */
+  @IsOptional()
   @IsString()
-  @MinLength(6)
-  password!: string;
+  @Matches(STRONG_PASSWORD_RX, { message: STRONG_PASSWORD_MESSAGE })
+  password?: string;
+}
+
+export class ChangePasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword!: string;
+
+  @IsString()
+  @Matches(STRONG_PASSWORD_RX, { message: STRONG_PASSWORD_MESSAGE })
+  newPassword!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  confirmPassword!: string;
 }
 
 export class MemberLoginDto {
@@ -101,6 +118,16 @@ export class CreateRoleDto {
   @IsArray()
   @IsIn(PAGE_HREFS, { each: true })
   pages?: string[];
+
+  /** { href: ['view','create','edit','delete'] } – cleaned in the service. */
+  @IsOptional()
+  @IsObject()
+  permissions?: Record<string, string[]>;
+
+  @IsOptional()
+  @IsArray()
+  @IsIn(WIDGET_KEYS, { each: true })
+  widgets?: string[];
 }
 
 export class UpdateRoleDto {
@@ -113,4 +140,13 @@ export class UpdateRoleDto {
   @IsArray()
   @IsIn(PAGE_HREFS, { each: true })
   pages?: string[];
+
+  @IsOptional()
+  @IsObject()
+  permissions?: Record<string, string[]>;
+
+  @IsOptional()
+  @IsArray()
+  @IsIn(WIDGET_KEYS, { each: true })
+  widgets?: string[];
 }

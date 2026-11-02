@@ -8,6 +8,7 @@ import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
 import { PdfGeneratorService } from './services/pdf-generator.service';
 import { CloudflareR2Module } from '../cloudflareR2/cloudflareR2.module';
+import { Delivery, DeliverySchema } from '../deliveries/schemas/delivery.schema';
 import { Transaction, TransactionSchema } from '../finance/schemas/transaction.schema';
 
 @Module({
@@ -19,6 +20,7 @@ import { Transaction, TransactionSchema } from '../finance/schemas/transaction.s
       { name: Order.name, schema: OrderSchema },
       { name: Product.name, schema: ProductSchema },
       { name: Transaction.name, schema: TransactionSchema },
+      { name: Delivery.name, schema: DeliverySchema },
     ]),
   ],
   controllers: [OrdersController],

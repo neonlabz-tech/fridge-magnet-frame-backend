@@ -26,13 +26,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: any) {
     if (payload.role === 'admin') {
       const admin = await this.adminModel.findById(payload.sub);
-      if (!admin) throw new UnauthorizedException();
+      if (!admin || (payload.tv ?? 0) !== (admin.tokenVersion ?? 0)) throw new UnauthorizedException();
       return { userId: admin._id.toString(), email: admin.email, role: 'admin' };
     }
 
     if (payload.role === 'member') {
       const member = await this.teamMemberModel.findById(payload.sub);
-      if (!member || member.status !== 'Active') throw new UnauthorizedException();
+      if (!member || member.status !== 'Active' || (payload.tv ?? 0) !== (member.tokenVersion ?? 0)) {
+        throw new UnauthorizedException();
+      }
       return {
         userId: member._id.toString(),
         email: member.email,

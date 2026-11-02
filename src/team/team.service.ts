@@ -12,6 +12,8 @@ import * as bcrypt from 'bcrypt';
 import {
   DEFAULT_ROLE_NAME,
   PAGE_HREFS,
+  PERMISSION_ACTIONS,
+  PERMISSION_KEYS,
   TEAM_NAME,
   TeamMember,
   TeamMemberDocument,
@@ -19,6 +21,7 @@ import {
   TeamRoleDocument,
 } from './schemas/team.schema';
 import {
+  ChangePasswordDto,
   CreateMemberDto,
   CreateRoleDto,
   MemberLoginDto,
@@ -26,8 +29,27 @@ import {
   UpdateRoleDto,
 } from './dto/team.dto';
 import { escapeRegex, nextSequenceId } from '../common/utils/clean-json';
+import { assertStrongPassword, generateTempPassword } from '../common/utils/password';
 
 const RESERVED_USERNAMES = ['admin'];
+
+/** Keeps only known pages/actions; every action needs 'view' on that page. Returns the cleaned map + the pages with 'view'. */
+function cleanPermissions(input: Record<string, unknown> | undefined) {
+  const permissions: Record<string, string[]> = {};
+  for (const key of PERMISSION_KEYS) {
+    // An old single Finance entry applies to both tabs.
+    const legacy = key.includes('#') ? key.split('#')[0] : key;
+    const raw = (input as Record<string, unknown> | undefined)?.[key] ?? (input as Record<string, unknown> | undefined)?.[legacy];
+    const list = Array.isArray(raw) ? raw.map(String) : [];
+    const actions = PERMISSION_ACTIONS.filter((a) => list.includes(a));
+    if (actions.length && actions.includes('view')) permissions[key] = [...actions];
+  }
+  const pages = [...new Set(Object.keys(permissions).map((k) => k.split('#')[0]))];
+  return { permissions, pages };
+}
+
+const fullPermissions = () =>
+  Object.fromEntries(PERMISSION_KEYS.map((h) => [h, [...PERMISSION_ACTIONS]])) as Record<string, string[]>;
 
 /** "Business Operator" -> BO, "Sales Executive" -> SE, "Sales" -> SA */
 const rolePrefix = (role: string) => {
@@ -49,12 +71,14 @@ export class TeamService {
   /* ---------- roles ---------- */
 
   private async ensureDefaultRole() {
-    if (await this.roleModel.exists({ name: DEFAULT_ROLE_NAME })) return;
+    // Seed the starter role only when there are no roles at all (so a deleted default role stays deleted).
+    if ((await this.roleModel.estimatedDocumentCount()) > 0) return;
     const ids = (await this.roleModel.find({}, 'id').exec()).map((r) => r.id);
     await this.roleModel.create({
       id: nextSequenceId(ids, 'ROLE-', 3),
       name: DEFAULT_ROLE_NAME,
       pages: [...PAGE_HREFS],
+      permissions: fullPermissions(),
     });
   }
 
@@ -79,10 +103,15 @@ export class TeamService {
       throw new ConflictException('A role with this name already exists');
     }
     const ids = (await this.roleModel.find({}, 'id').exec()).map((r) => r.id);
+    // New roles start with nothing; pages given without a permission map get View only (safe default).
+    const viewOnly = Object.fromEntries((dto.pages ?? []).map((h) => [h, ['view']]));
+    const cleaned = cleanPermissions(dto.permissions ?? viewOnly);
     const role = await this.roleModel.create({
       id: nextSequenceId(ids, 'ROLE-', 3),
       name,
-      pages: dto.pages ?? [],
+      pages: cleaned.pages,
+      permissions: cleaned.permissions,
+      ...(dto.widgets ? { widgets: dto.widgets } : {}),
     });
     return { message: 'Role created successfully', data: role };
   }
@@ -99,7 +128,15 @@ export class TeamService {
       }
       role.name = name;
     }
-    if (dto.pages !== undefined) role.pages = dto.pages;
+    if (dto.permissions !== undefined) {
+      const cleaned = cleanPermissions(dto.permissions);
+      role.permissions = cleaned.permissions;
+      role.pages = cleaned.pages;
+      role.markModified('permissions');
+    } else if (dto.pages !== undefined) {
+      role.pages = dto.pages;
+    }
+    if (dto.widgets !== undefined) role.widgets = dto.widgets;
     await role.save();
 
     if (role.name !== previousName) {
@@ -196,6 +233,9 @@ export class TeamService {
       status: 'Active',
       username,
       passwordHash: await bcrypt.hash(dto.password, 10),
+      passwordChangedAt: new Date(),
+      mustChangePassword: true, // the password was set by an admin: user picks their own at first sign-in
+      tokenVersion: 0,
     });
     return { message: 'User created successfully', data: member };
   }
@@ -216,7 +256,12 @@ export class TeamService {
     if (dto.status !== undefined) member.status = dto.status;
     member.username = username;
     member.email = email;
-    if (dto.password) member.passwordHash = await bcrypt.hash(dto.password, 10);
+    if (dto.password) {
+      member.passwordHash = await bcrypt.hash(dto.password, 10);
+      member.passwordChangedAt = new Date();
+      member.mustChangePassword = true;
+      member.tokenVersion = (member.tokenVersion ?? 0) + 1;
+    }
 
     await member.save();
     return { message: 'User updated successfully', data: member };
@@ -226,11 +271,69 @@ export class TeamService {
     return this.updateMember(id, { status });
   }
 
-  async resetPassword(id: string, password: string) {
+  /**
+   * Admin reset: sets a temporary password (given, or generated) that the user must replace at the
+   * next sign-in. Existing sign-ins stop working. The temporary password is returned once, never stored.
+   */
+  async resetPassword(id: string, password?: string) {
     const member = await this.findMember(id);
-    member.passwordHash = await bcrypt.hash(password, 10);
+    const temporaryPassword = password || generateTempPassword();
+    member.passwordHash = await bcrypt.hash(temporaryPassword, 10);
+    member.passwordChangedAt = new Date();
+    member.mustChangePassword = true;
+    member.tokenVersion = (member.tokenVersion ?? 0) + 1;
     await member.save();
-    return { message: 'Password reset successfully', data: member };
+    return { message: 'Password reset successfully', data: member, temporaryPassword };
+  }
+
+  private signToken(member: TeamMemberDocument) {
+    return this.jwtService.sign({
+      sub: member._id.toString(),
+      email: member.email,
+      username: member.username,
+      role: 'member',
+      tv: member.tokenVersion ?? 0,
+    });
+  }
+
+  /** The signed-in member changes their own password (also used for the forced first-login change). */
+  async changeOwnPassword(memberId: string, dto: ChangePasswordDto) {
+    const member = await this.memberModel.findById(memberId).exec();
+    if (!member || member.status !== 'Active') throw new UnauthorizedException();
+
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('New password and confirmation do not match');
+    }
+    assertStrongPassword(dto.newPassword);
+    if (!(await bcrypt.compare(dto.currentPassword, member.passwordHash))) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+    if (dto.newPassword === dto.currentPassword) {
+      throw new BadRequestException('New password must be different from the current password');
+    }
+
+    member.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    member.passwordChangedAt = new Date();
+    member.mustChangePassword = false;
+    member.tokenVersion = (member.tokenVersion ?? 0) + 1; // every other sign-in is revoked
+    await member.save();
+
+    const token = this.signToken(member);
+    return { message: 'Password changed successfully', token, access_token: token };
+  }
+
+  /** Lightweight check used by the dashboard to learn whether the sign-in is still valid. */
+  async me(memberId: string) {
+    const member = await this.memberModel.findById(memberId).exec();
+    if (!member || member.status !== 'Active') throw new UnauthorizedException();
+    return {
+      data: {
+        id: member.id,
+        username: member.username,
+        mustChangePassword: Boolean(member.mustChangePassword),
+        passwordChangedAt: member.passwordChangedAt ?? null,
+      },
+    };
   }
 
   async removeMember(id: string) {
@@ -261,14 +364,10 @@ export class TeamService {
       );
     }
 
-    const token = this.jwtService.sign({
-      sub: member._id.toString(),
-      email: member.email,
-      username: member.username,
-      role: 'member',
-    });
+    const token = this.signToken(member);
 
     return {
+      mustChangePassword: Boolean(member.mustChangePassword),
       token,
       access_token: token,
       session: {

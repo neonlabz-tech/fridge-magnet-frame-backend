@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
-  IsEmail,
   IsIn,
   IsNumber,
   IsOptional,
@@ -52,7 +51,8 @@ export class CreateOrderDto {
   @IsString()
   customerId?: string;
 
-  @IsEmail()
+  @IsOptional()
+  @IsString()
   email?: string;
 
   @IsOptional()

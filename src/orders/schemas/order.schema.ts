@@ -22,7 +22,8 @@ export class Order {
   @Prop({ required: true })
   customerId!: string;
 
-  @Prop({ required: true })
+  // Optional on staff (direct) orders: an internal placeholder address is stored instead.
+  @Prop({ default: '' })
   email!: string;
 
   @Prop()
