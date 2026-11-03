@@ -1,7 +1,7 @@
 import { JwtService } from '@nestjs/jwt';
 import { Model } from 'mongoose';
 import { TeamMember, TeamMemberDocument, TeamRole, TeamRoleDocument } from './schemas/team.schema';
-import { CreateMemberDto, CreateRoleDto, MemberLoginDto, UpdateMemberDto, UpdateRoleDto } from './dto/team.dto';
+import { ChangePasswordDto, CreateMemberDto, CreateRoleDto, MemberLoginDto, UpdateMemberDto, UpdateRoleDto } from './dto/team.dto';
 export declare class TeamService {
     private readonly memberModel;
     private readonly roleModel;
@@ -14,6 +14,8 @@ export declare class TeamService {
             id: string;
             name: string;
             pages: string[];
+            permissions: Record<string, string[]>;
+            widgets?: string[];
             _id: import("mongoose").Types.ObjectId;
             $locals: Record<string, unknown>;
             $op: "save" | "validate" | "remove" | null;
@@ -100,12 +102,27 @@ export declare class TeamService {
             __v: number;
         };
     }>;
-    resetPassword(id: string, password: string): Promise<{
+    resetPassword(id: string, password?: string): Promise<{
         message: string;
         data: import("mongoose").Document<unknown, {}, TeamMemberDocument, {}, import("mongoose").DefaultSchemaOptions> & TeamMember & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
             _id: import("mongoose").Types.ObjectId;
         }> & {
             __v: number;
+        };
+        temporaryPassword: string;
+    }>;
+    private signToken;
+    changeOwnPassword(memberId: string, dto: ChangePasswordDto): Promise<{
+        message: string;
+        token: string;
+        access_token: string;
+    }>;
+    me(memberId: string): Promise<{
+        data: {
+            id: string;
+            username: string;
+            mustChangePassword: boolean;
+            passwordChangedAt: Date | null;
         };
     }>;
     removeMember(id: string): Promise<{
@@ -118,6 +135,7 @@ export declare class TeamService {
     }>;
     allowedPages(roleName: string): Promise<string[]>;
     login(dto: MemberLoginDto): Promise<{
+        mustChangePassword: boolean;
         token: string;
         access_token: string;
         session: {

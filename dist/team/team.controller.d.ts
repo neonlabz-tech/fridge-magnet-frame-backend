@@ -1,9 +1,10 @@
 import { TeamService } from './team.service';
-import { CreateMemberDto, CreateRoleDto, MemberLoginDto, ResetPasswordDto, UpdateMemberDto, UpdateRoleDto } from './dto/team.dto';
+import { ChangePasswordDto, CreateMemberDto, CreateRoleDto, MemberLoginDto, ResetPasswordDto, UpdateMemberDto, UpdateRoleDto } from './dto/team.dto';
 export declare class TeamController {
     private readonly teamService;
     constructor(teamService: TeamService);
     login(dto: MemberLoginDto): Promise<{
+        mustChangePassword: boolean;
         token: string;
         access_token: string;
         session: {
@@ -14,12 +15,36 @@ export declare class TeamController {
         };
         allowedPages: string[];
     }>;
+    changePassword(req: {
+        user: {
+            userId: string;
+            role?: string;
+        };
+    }, dto: ChangePasswordDto): Promise<{
+        message: string;
+        token: string;
+        access_token: string;
+    }>;
+    me(req: {
+        user: {
+            userId: string;
+        };
+    }): Promise<{
+        data: {
+            id: string;
+            username: string;
+            mustChangePassword: boolean;
+            passwordChangedAt: Date | null;
+        };
+    }>;
     findRoles(): Promise<{
         data: {
             memberCount: number;
             id: string;
             name: string;
             pages: string[];
+            permissions: Record<string, string[]>;
+            widgets?: string[];
             _id: import("mongoose").Types.ObjectId;
             $locals: Record<string, unknown>;
             $op: "save" | "validate" | "remove" | null;
@@ -113,6 +138,7 @@ export declare class TeamController {
         }> & {
             __v: number;
         };
+        temporaryPassword: string;
     }>;
     updateMember(id: string, dto: UpdateMemberDto): Promise<{
         message: string;

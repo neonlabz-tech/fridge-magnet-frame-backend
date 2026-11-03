@@ -35,7 +35,7 @@ __decorate([
     __metadata("design:type", String)
 ], Order.prototype, "customerId", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ required: true }),
+    (0, mongoose_1.Prop)({ default: '' }),
     __metadata("design:type", String)
 ], Order.prototype, "email", void 0);
 __decorate([

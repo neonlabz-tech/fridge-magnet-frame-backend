@@ -46,6 +46,12 @@ export declare class AuthController {
     resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{
         message: string;
     }>;
+    adminForgotPassword(dto: ForgotPasswordDto): Promise<{
+        message: string;
+    }>;
+    adminResetPassword(dto: ResetPasswordDto): Promise<{
+        message: string;
+    }>;
     activateAccount(token: string): Promise<{
         message: string;
         alreadyActivated: boolean;
@@ -73,6 +79,7 @@ export declare class AuthController {
             customerAddress: any;
             customerId: any;
             createdAt: any;
+            passwordChangedAt: any;
         };
     }>;
     updateProfile(req: {
@@ -81,6 +88,8 @@ export declare class AuthController {
             role?: string;
         };
     }, updateProfileDto: UpdateProfileDto): Promise<{
+        token?: string | undefined;
+        access_token?: string | undefined;
         message: string;
         user: {
             id: any;
@@ -96,6 +105,7 @@ export declare class AuthController {
             customerAddress: any;
             customerId: any;
             createdAt: any;
+            passwordChangedAt: any;
         };
     }>;
     uploadAvatar(req: {
@@ -119,6 +129,7 @@ export declare class AuthController {
             customerAddress: any;
             customerId: any;
             createdAt: any;
+            passwordChangedAt: any;
         };
     }>;
 }

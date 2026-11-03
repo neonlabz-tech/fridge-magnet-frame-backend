@@ -134,7 +134,7 @@ let DeliveriesService = DeliveriesService_1 = class DeliveriesService {
         return delivery;
     }
     async create(dto) {
-        const taken = dto.id ? await this.model.exists({ id: dto.id }) : true;
+        const taken = dto.id ? await this.model.exists({ id: { $in: this.ids(dto.id) } }) : true;
         const id = dto.id && !taken ? dto.id : await this.nextId();
         const delivery = await this.model.create({ ...dto, id });
         await this.syncOrderFromDelivery(delivery.orderId, delivery.status);
@@ -154,9 +154,9 @@ let DeliveriesService = DeliveriesService_1 = class DeliveriesService {
     }
     async bulkUpdateStatus(dto) {
         const result = await this.model
-            .updateMany({ id: { $in: dto.ids } }, { $set: { status: dto.status } })
+            .updateMany({ id: { $in: dto.ids.flatMap((i) => this.ids(i)) } }, { $set: { status: dto.status } })
             .exec();
-        const list = await this.model.find({ id: { $in: dto.ids } }, 'orderId').exec();
+        const list = await this.model.find({ id: { $in: dto.ids.flatMap((i) => this.ids(i)) } }, 'orderId').exec();
         for (const d of list)
             await this.syncOrderFromDelivery(d.orderId, dto.status);
         return {

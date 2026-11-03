@@ -47,6 +47,7 @@ export declare class Lead {
     history: FollowUp[];
     customerId?: string;
     order?: LeadOrderInfo;
+    sales?: LeadOrderInfo[];
 }
 export declare const LeadSchema: import("mongoose").Schema<Lead, import("mongoose").Model<Lead, any, any, any, any, any, Lead>, {}, {}, {}, {}, import("mongoose").DefaultSchemaOptions, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
     _id: import("mongoose").Types.ObjectId;
@@ -139,6 +140,11 @@ export declare const LeadSchema: import("mongoose").Schema<Lead, import("mongoos
         __v: number;
     }> | undefined;
     order?: import("mongoose").SchemaDefinitionProperty<LeadOrderInfo | undefined, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
+        _id: import("mongoose").Types.ObjectId;
+    } & {
+        __v: number;
+    }> | undefined;
+    sales?: import("mongoose").SchemaDefinitionProperty<LeadOrderInfo[] | undefined, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
         _id: import("mongoose").Types.ObjectId;
     } & {
         __v: number;

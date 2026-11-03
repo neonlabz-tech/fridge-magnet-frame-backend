@@ -42,6 +42,12 @@ let AuthController = class AuthController {
     async resetPassword(resetPasswordDto) {
         return this.authService.resetPassword(resetPasswordDto);
     }
+    async adminForgotPassword(dto) {
+        return this.authService.adminForgotPassword(dto);
+    }
+    async adminResetPassword(dto) {
+        return this.authService.adminResetPassword(dto);
+    }
     async activateAccount(token) {
         return this.authService.activateAccount(token);
     }
@@ -94,6 +100,22 @@ __decorate([
     __metadata("design:paramtypes", [reset_password_dto_1.ResetPasswordDto]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "resetPassword", null);
+__decorate([
+    (0, common_1.Post)('admin/forgot-password'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [forgot_password_dto_1.ForgotPasswordDto]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "adminForgotPassword", null);
+__decorate([
+    (0, common_1.Post)('admin/reset-password'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [reset_password_dto_1.ResetPasswordDto]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "adminResetPassword", null);
 __decorate([
     (0, common_1.Get)('activate'),
     (0, common_1.HttpCode)(200),

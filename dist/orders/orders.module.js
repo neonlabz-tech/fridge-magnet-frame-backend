@@ -17,6 +17,7 @@ const users_module_1 = require("../users/users.module");
 const mail_module_1 = require("../mail/mail.module");
 const pdf_generator_service_1 = require("./services/pdf-generator.service");
 const cloudflareR2_module_1 = require("../cloudflareR2/cloudflareR2.module");
+const delivery_schema_1 = require("../deliveries/schemas/delivery.schema");
 const transaction_schema_1 = require("../finance/schemas/transaction.schema");
 let OrdersModule = class OrdersModule {
 };
@@ -31,6 +32,7 @@ exports.OrdersModule = OrdersModule = __decorate([
                 { name: order_schema_1.Order.name, schema: order_schema_1.OrderSchema },
                 { name: product_schema_1.Product.name, schema: product_schema_1.ProductSchema },
                 { name: transaction_schema_1.Transaction.name, schema: transaction_schema_1.TransactionSchema },
+                { name: delivery_schema_1.Delivery.name, schema: delivery_schema_1.DeliverySchema },
             ]),
         ],
         controllers: [orders_controller_1.OrdersController],

@@ -99,6 +99,10 @@ __decorate([
     (0, mongoose_1.Prop)({ type: Object }),
     __metadata("design:type", Object)
 ], Lead.prototype, "order", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [Object], default: undefined }),
+    __metadata("design:type", Array)
+], Lead.prototype, "sales", void 0);
 exports.Lead = Lead = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true, toJSON: (0, clean_json_1.cleanJson)() })
 ], Lead);

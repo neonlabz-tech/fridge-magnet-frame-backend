@@ -22,6 +22,7 @@ const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const axios_1 = __importDefault(require("axios"));
 const order_schema_1 = require("./schemas/order.schema");
+const delivery_schema_1 = require("../deliveries/schemas/delivery.schema");
 const cloudflareR2_service_1 = require("../cloudflareR2/cloudflareR2.service");
 const transaction_schema_1 = require("../finance/schemas/transaction.schema");
 const product_schema_1 = require("../products/schemas/product.schema");
@@ -29,10 +30,11 @@ const users_service_1 = require("../users/users.service");
 const mail_service_1 = require("../mail/mail.service");
 const pdf_generator_service_1 = require("./services/pdf-generator.service");
 let OrdersService = OrdersService_1 = class OrdersService {
-    constructor(orderModel, productModel, transactionModel, usersService, mailService, pdfGeneratorService, cloudflareR2Service) {
+    constructor(orderModel, productModel, transactionModel, deliveryModel, usersService, mailService, pdfGeneratorService, cloudflareR2Service) {
         this.orderModel = orderModel;
         this.productModel = productModel;
         this.transactionModel = transactionModel;
+        this.deliveryModel = deliveryModel;
         this.usersService = usersService;
         this.mailService = mailService;
         this.pdfGeneratorService = pdfGeneratorService;
@@ -356,7 +358,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
                     $in: Array.from(idSet),
                 },
             })
-                .select('productId')
+                .select('productId primaryImage')
                 .exec()
             : [];
         const productsByCode = codeSet.size
@@ -366,16 +368,24 @@ let OrdersService = OrdersService_1 = class OrdersService {
                     $in: Array.from(codeSet),
                 },
             })
-                .select('productId')
+                .select('productId primaryImage')
                 .exec()
             : [];
         const skuById = new Map();
+        const imageById = new Map();
+        const imageByCode = new Map();
         for (const product of productsById) {
             skuById.set(String(product._id), product.productId);
+            if (product.primaryImage?.secure_url) {
+                imageById.set(String(product._id), product.primaryImage.secure_url);
+            }
         }
         const skuByCode = new Map();
         for (const product of productsByCode) {
             skuByCode.set(product.productId, product.productId);
+            if (product.primaryImage?.secure_url) {
+                imageByCode.set(product.productId, product.primaryImage.secure_url);
+            }
         }
         return orders.map((order) => ({
             ...order,
@@ -384,9 +394,14 @@ let OrdersService = OrdersService_1 = class OrdersService {
                     ? skuById.get(item.productId) ??
                         skuByCode.get(item.productId)
                     : undefined;
+                const image = item.productId
+                    ? imageById.get(item.productId) ??
+                        imageByCode.get(item.productId)
+                    : undefined;
                 return {
                     ...item,
                     sku: sku ?? null,
+                    ...(!item.primaryImage && image ? { primaryImage: image } : {}),
                 };
             }),
         }));
@@ -446,6 +461,9 @@ let OrdersService = OrdersService_1 = class OrdersService {
                 await product.save();
             }
         }
+        const orderEmail = (dto.email ?? '').trim() ||
+            `${this.usersService.normalisePhone(dto.phone)}${users_service_1.UsersService.NO_EMAIL_DOMAIN}`;
+        dto.email = orderEmail;
         const resolvedCustomerId = await this.resolveOrderCustomerId({
             email: dto.email,
             customerId: dto.customerId,
@@ -467,6 +485,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
             phone: dto.phone,
             shippingAddress: dto.shippingAddress ?? '',
             manual: dto.orderSource === 'direct',
+            customerId: dto.customerId,
         });
         try {
             const result = await this.mailService.sendOrderPlacedAdminNotification({
@@ -672,7 +691,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
             ]);
             return enriched;
         }
-        if (!order.email) {
+        if (!order.email || order.email.endsWith(users_service_1.UsersService.NO_EMAIL_DOMAIN)) {
             this.logger.warn(`[Orders] sendEmailNotification=true but order ${order.orderId} has no email address`);
             const [enriched] = await this.attachItemSkus([
                 {
@@ -724,11 +743,29 @@ let OrdersService = OrdersService_1 = class OrdersService {
         if (!order) {
             throw new common_1.NotFoundException('Order not found');
         }
+        try {
+            await this.purgeCustomerImages(order);
+        }
+        catch (err) {
+            this.logger.warn(`[Orders] Photo cleanup failed while deleting ${order.orderId}: ${err}`);
+        }
+        if (this.normalizeOrderStatus(order.status) !== 'CANCELED') {
+            try {
+                await this.restoreStockForOrder(order.toObject());
+            }
+            catch (err) {
+                this.logger.warn(`[Orders] Stock restore failed while deleting ${order.orderId}: ${err}`);
+            }
+        }
         await this.orderModel
             .deleteOne({ _id: order._id })
             .exec();
         await this.transactionModel
             .deleteOne({ id: this.incomeTxId(order.orderId) })
+            .exec();
+        const bareId = String(order.orderId).replace(/^#/, '');
+        await this.deliveryModel
+            .deleteMany({ orderId: { $in: [bareId, `#${bareId}`] } })
             .exec();
         return {
             message: 'Order deleted successfully',
@@ -841,7 +878,9 @@ exports.OrdersService = OrdersService = OrdersService_1 = __decorate([
     __param(0, (0, mongoose_1.InjectModel)(order_schema_1.Order.name)),
     __param(1, (0, mongoose_1.InjectModel)(product_schema_1.Product.name)),
     __param(2, (0, mongoose_1.InjectModel)(transaction_schema_1.Transaction.name)),
+    __param(3, (0, mongoose_1.InjectModel)(delivery_schema_1.Delivery.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model,
         mongoose_2.Model,
         mongoose_2.Model,
         users_service_1.UsersService,
