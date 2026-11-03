@@ -51,6 +51,22 @@ __decorate([
     (0, mongoose_1.Prop)({ type: Boolean, default: false }),
     __metadata("design:type", Boolean)
 ], Admin.prototype, "twoFactorEnabled", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Date }),
+    __metadata("design:type", Date)
+], Admin.prototype, "passwordChangedAt", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Number, default: 0 }),
+    __metadata("design:type", Number)
+], Admin.prototype, "tokenVersion", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: String }),
+    __metadata("design:type", String)
+], Admin.prototype, "passwordResetToken", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Date }),
+    __metadata("design:type", Date)
+], Admin.prototype, "passwordResetExpires", void 0);
 exports.Admin = Admin = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], Admin);

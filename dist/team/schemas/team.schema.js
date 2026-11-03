@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TeamRoleSchema = exports.TeamRole = exports.TeamMemberSchema = exports.TeamMember = exports.PAGE_HREFS = exports.TEAM_NAME = exports.DEFAULT_ROLE_NAME = void 0;
+exports.TeamRoleSchema = exports.TeamRole = exports.WIDGET_KEYS = exports.PERMISSION_ACTIONS = exports.PERMISSION_KEYS = exports.TeamMemberSchema = exports.TeamMember = exports.PAGE_HREFS = exports.TEAM_NAME = exports.DEFAULT_ROLE_NAME = void 0;
 const mongoose_1 = require("@nestjs/mongoose");
 const clean_json_1 = require("../../common/utils/clean-json");
 exports.DEFAULT_ROLE_NAME = 'Business Operator';
@@ -21,6 +21,7 @@ exports.PAGE_HREFS = [
     '/dashboard/inventory',
     '/dashboard/deliveries',
     '/dashboard/leads',
+    '/dashboard/targets',
     '/dashboard/finance',
 ];
 let TeamMember = class TeamMember {
@@ -62,10 +63,54 @@ __decorate([
     (0, mongoose_1.Prop)({ required: true }),
     __metadata("design:type", String)
 ], TeamMember.prototype, "passwordHash", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Date }),
+    __metadata("design:type", Date)
+], TeamMember.prototype, "passwordChangedAt", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Boolean, default: false }),
+    __metadata("design:type", Boolean)
+], TeamMember.prototype, "mustChangePassword", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Number, default: 0 }),
+    __metadata("design:type", Number)
+], TeamMember.prototype, "tokenVersion", void 0);
 exports.TeamMember = TeamMember = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true, toJSON: (0, clean_json_1.cleanJson)('passwordHash') })
 ], TeamMember);
 exports.TeamMemberSchema = mongoose_1.SchemaFactory.createForClass(TeamMember);
+exports.PERMISSION_KEYS = [
+    '/dashboard/orders',
+    '/dashboard/customers',
+    '/dashboard/products',
+    '/dashboard/inventory',
+    '/dashboard/deliveries',
+    '/dashboard/leads',
+    '/dashboard/targets',
+    '/dashboard/finance#income',
+    '/dashboard/finance#expense',
+];
+exports.PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete'];
+exports.WIDGET_KEYS = [
+    'stats',
+    'stat-orders',
+    'stat-revenue',
+    'stat-customers',
+    'stat-stock',
+    'stat-deliveries',
+    'stat-profit',
+    'revenue-trend',
+    'orders-per-day',
+    'income-expenses',
+    'top-products',
+    'order-status',
+    'payment-methods',
+    'product-stock',
+    'delivery-status',
+    'leads',
+    'hide-product-cost',
+    'hide-product-profit',
+];
 let TeamRole = class TeamRole {
 };
 exports.TeamRole = TeamRole;
@@ -81,6 +126,14 @@ __decorate([
     (0, mongoose_1.Prop)({ type: [String], default: [] }),
     __metadata("design:type", Array)
 ], TeamRole.prototype, "pages", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Object, default: {} }),
+    __metadata("design:type", Object)
+], TeamRole.prototype, "permissions", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [String], default: undefined }),
+    __metadata("design:type", Array)
+], TeamRole.prototype, "widgets", void 0);
 exports.TeamRole = TeamRole = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true, toJSON: (0, clean_json_1.cleanJson)() })
 ], TeamRole);

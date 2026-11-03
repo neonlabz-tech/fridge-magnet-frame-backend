@@ -16,7 +16,12 @@ export declare class UpdateMemberDto {
     status?: string;
 }
 export declare class ResetPasswordDto {
-    password: string;
+    password?: string;
+}
+export declare class ChangePasswordDto {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
 }
 export declare class MemberLoginDto {
     username: string;
@@ -25,8 +30,12 @@ export declare class MemberLoginDto {
 export declare class CreateRoleDto {
     name: string;
     pages?: string[];
+    permissions?: Record<string, string[]>;
+    widgets?: string[];
 }
 export declare class UpdateRoleDto {
     name?: string;
     pages?: string[];
+    permissions?: Record<string, string[]>;
+    widgets?: string[];
 }

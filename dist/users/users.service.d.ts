@@ -33,8 +33,8 @@ export declare class UsersService {
     generateAndAssignCustomerId(userId: string): Promise<string>;
     findCustomerByEmail(email: string): Promise<User | null>;
     private serializeCustomer;
-    private normalisePhone;
-    private static readonly NO_EMAIL_DOMAIN;
+    normalisePhone(raw?: string): string;
+    static readonly NO_EMAIL_DOMAIN = "@manual.magnify.local";
     private assertPhoneOk;
     createCustomer(dto: CreateCustomerDto): Promise<any>;
     findCustomerByEmailAddress(email: string): Promise<any | null>;
@@ -61,5 +61,7 @@ export declare class UsersService {
         phone?: string;
         shippingAddress: string;
         manual?: boolean;
+        customerId?: string;
     }): Promise<any>;
+    private assignOrderCustomerId;
 }

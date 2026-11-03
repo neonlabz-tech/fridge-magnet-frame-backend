@@ -62,6 +62,12 @@ export declare class AuthService {
     resetPassword(dto: ResetPasswordDto): Promise<{
         message: string;
     }>;
+    adminForgotPassword(dto: ForgotPasswordDto): Promise<{
+        message: string;
+    }>;
+    adminResetPassword(dto: ResetPasswordDto): Promise<{
+        message: string;
+    }>;
     private serializeProfile;
     getProfile(userId: string, role?: string): Promise<{
         user: {
@@ -78,9 +84,12 @@ export declare class AuthService {
             customerAddress: any;
             customerId: any;
             createdAt: any;
+            passwordChangedAt: any;
         };
     }>;
     updateProfile(userId: string, dto: UpdateProfileDto, role?: string): Promise<{
+        token?: string | undefined;
+        access_token?: string | undefined;
         message: string;
         user: {
             id: any;
@@ -96,6 +105,7 @@ export declare class AuthService {
             customerAddress: any;
             customerId: any;
             createdAt: any;
+            passwordChangedAt: any;
         };
     }>;
     uploadAvatar(userId: string, file: Express.Multer.File, role?: string): Promise<{
@@ -114,6 +124,7 @@ export declare class AuthService {
             customerAddress: any;
             customerId: any;
             createdAt: any;
+            passwordChangedAt: any;
         };
     }>;
 }

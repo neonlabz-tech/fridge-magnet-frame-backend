@@ -37,14 +37,15 @@ let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(pas
     async validate(payload) {
         if (payload.role === 'admin') {
             const admin = await this.adminModel.findById(payload.sub);
-            if (!admin)
+            if (!admin || (payload.tv ?? 0) !== (admin.tokenVersion ?? 0))
                 throw new common_1.UnauthorizedException();
             return { userId: admin._id.toString(), email: admin.email, role: 'admin' };
         }
         if (payload.role === 'member') {
             const member = await this.teamMemberModel.findById(payload.sub);
-            if (!member || member.status !== 'Active')
+            if (!member || member.status !== 'Active' || (payload.tv ?? 0) !== (member.tokenVersion ?? 0)) {
                 throw new common_1.UnauthorizedException();
+            }
             return {
                 userId: member._id.toString(),
                 email: member.email,

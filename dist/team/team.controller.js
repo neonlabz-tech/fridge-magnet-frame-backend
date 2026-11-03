@@ -14,6 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TeamController = void 0;
 const common_1 = require("@nestjs/common");
+const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const team_service_1 = require("./team.service");
 const team_dto_1 = require("./dto/team.dto");
 let TeamController = class TeamController {
@@ -22,6 +23,12 @@ let TeamController = class TeamController {
     }
     login(dto) {
         return this.teamService.login(dto);
+    }
+    changePassword(req, dto) {
+        return this.teamService.changeOwnPassword(req.user.userId, dto);
+    }
+    me(req) {
+        return this.teamService.me(req.user.userId);
     }
     findRoles() {
         return this.teamService.findRoles();
@@ -72,6 +79,24 @@ __decorate([
     __metadata("design:paramtypes", [team_dto_1.MemberLoginDto]),
     __metadata("design:returntype", void 0)
 ], TeamController.prototype, "login", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)('change-password'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, team_dto_1.ChangePasswordDto]),
+    __metadata("design:returntype", void 0)
+], TeamController.prototype, "changePassword", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('me'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], TeamController.prototype, "me", null);
 __decorate([
     (0, common_1.Get)('roles'),
     __metadata("design:type", Function),

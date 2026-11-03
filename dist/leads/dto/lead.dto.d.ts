@@ -17,6 +17,7 @@ export declare class CreateLeadDto {
     history?: Record<string, any>[];
     customerId?: string;
     order?: Record<string, any>;
+    sales?: Record<string, any>[];
     actor?: string;
 }
 export declare class ImportLeadsDto {
@@ -39,6 +40,7 @@ export declare class UpdateLeadDto {
     history?: Record<string, any>[];
     customerId?: string;
     order?: Record<string, any>;
+    sales?: Record<string, any>[];
     actor?: string;
 }
 export declare class AddFollowUpDto {

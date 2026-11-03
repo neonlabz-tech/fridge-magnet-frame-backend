@@ -9,6 +9,10 @@ export declare class Admin extends Document {
     avatar?: string;
     avatarPublicId?: string;
     twoFactorEnabled?: boolean;
+    passwordChangedAt?: Date;
+    tokenVersion?: number;
+    passwordResetToken?: string;
+    passwordResetExpires?: Date;
 }
 export declare const AdminSchema: import("mongoose").Schema<Admin, import("mongoose").Model<Admin, any, any, any, any, any, Admin>, {}, {}, {}, {}, import("mongoose").DefaultSchemaOptions, Admin, Document<unknown, {}, Admin, {
     id: string;
@@ -101,6 +105,42 @@ export declare const AdminSchema: import("mongoose").Schema<Admin, import("mongo
         id: string;
     }>> | undefined;
     twoFactorEnabled?: import("mongoose").SchemaDefinitionProperty<boolean | undefined, Admin, Document<unknown, {}, Admin, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<Admin & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & import("mongoose").HydratedDocumentOverrides<{
+        id: string;
+    }>> | undefined;
+    passwordResetToken?: import("mongoose").SchemaDefinitionProperty<string | undefined, Admin, Document<unknown, {}, Admin, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<Admin & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & import("mongoose").HydratedDocumentOverrides<{
+        id: string;
+    }>> | undefined;
+    passwordResetExpires?: import("mongoose").SchemaDefinitionProperty<Date | undefined, Admin, Document<unknown, {}, Admin, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<Admin & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & import("mongoose").HydratedDocumentOverrides<{
+        id: string;
+    }>> | undefined;
+    passwordChangedAt?: import("mongoose").SchemaDefinitionProperty<Date | undefined, Admin, Document<unknown, {}, Admin, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<Admin & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & import("mongoose").HydratedDocumentOverrides<{
+        id: string;
+    }>> | undefined;
+    tokenVersion?: import("mongoose").SchemaDefinitionProperty<number | undefined, Admin, Document<unknown, {}, Admin, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<Admin & Required<{
         _id: import("mongoose").Types.ObjectId;

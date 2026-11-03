@@ -9,9 +9,10 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateRoleDto = exports.CreateRoleDto = exports.MemberLoginDto = exports.ResetPasswordDto = exports.UpdateMemberDto = exports.CreateMemberDto = void 0;
+exports.UpdateRoleDto = exports.CreateRoleDto = exports.MemberLoginDto = exports.ChangePasswordDto = exports.ResetPasswordDto = exports.UpdateMemberDto = exports.CreateMemberDto = void 0;
 const class_validator_1 = require("class-validator");
 const team_schema_1 = require("../schemas/team.schema");
+const password_1 = require("../../common/utils/password");
 const USERNAME_RX = /^[a-z0-9._-]{3,}$/;
 class CreateMemberDto {
 }
@@ -44,7 +45,7 @@ __decorate([
 ], CreateMemberDto.prototype, "username", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.MinLength)(6),
+    (0, class_validator_1.Matches)(password_1.STRONG_PASSWORD_RX, { message: password_1.STRONG_PASSWORD_MESSAGE }),
     __metadata("design:type", String)
 ], CreateMemberDto.prototype, "password", void 0);
 class UpdateMemberDto {
@@ -83,7 +84,7 @@ __decorate([
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.MinLength)(6),
+    (0, class_validator_1.Matches)(password_1.STRONG_PASSWORD_RX, { message: password_1.STRONG_PASSWORD_MESSAGE }),
     __metadata("design:type", String)
 ], UpdateMemberDto.prototype, "password", void 0);
 __decorate([
@@ -95,10 +96,29 @@ class ResetPasswordDto {
 }
 exports.ResetPasswordDto = ResetPasswordDto;
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.MinLength)(6),
+    (0, class_validator_1.Matches)(password_1.STRONG_PASSWORD_RX, { message: password_1.STRONG_PASSWORD_MESSAGE }),
     __metadata("design:type", String)
 ], ResetPasswordDto.prototype, "password", void 0);
+class ChangePasswordDto {
+}
+exports.ChangePasswordDto = ChangePasswordDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], ChangePasswordDto.prototype, "currentPassword", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.Matches)(password_1.STRONG_PASSWORD_RX, { message: password_1.STRONG_PASSWORD_MESSAGE }),
+    __metadata("design:type", String)
+], ChangePasswordDto.prototype, "newPassword", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], ChangePasswordDto.prototype, "confirmPassword", void 0);
 class MemberLoginDto {
 }
 exports.MemberLoginDto = MemberLoginDto;
@@ -126,6 +146,17 @@ __decorate([
     (0, class_validator_1.IsIn)(team_schema_1.PAGE_HREFS, { each: true }),
     __metadata("design:type", Array)
 ], CreateRoleDto.prototype, "pages", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], CreateRoleDto.prototype, "permissions", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsIn)(team_schema_1.WIDGET_KEYS, { each: true }),
+    __metadata("design:type", Array)
+], CreateRoleDto.prototype, "widgets", void 0);
 class UpdateRoleDto {
 }
 exports.UpdateRoleDto = UpdateRoleDto;
@@ -141,4 +172,15 @@ __decorate([
     (0, class_validator_1.IsIn)(team_schema_1.PAGE_HREFS, { each: true }),
     __metadata("design:type", Array)
 ], UpdateRoleDto.prototype, "pages", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], UpdateRoleDto.prototype, "permissions", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsIn)(team_schema_1.WIDGET_KEYS, { each: true }),
+    __metadata("design:type", Array)
+], UpdateRoleDto.prototype, "widgets", void 0);
 //# sourceMappingURL=team.dto.js.map

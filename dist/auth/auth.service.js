@@ -58,6 +58,7 @@ const bcrypt = __importStar(require("bcrypt"));
 const crypto = __importStar(require("crypto"));
 const mail_service_1 = require("../mail/mail.service");
 const cloudflareR2_service_1 = require("../cloudflareR2/cloudflareR2.service");
+const password_1 = require("../common/utils/password");
 let AuthService = AuthService_1 = class AuthService {
     constructor(adminModel, usersService, jwtService, mailService, configService, cloudflareR2Service) {
         this.adminModel = adminModel;
@@ -88,6 +89,7 @@ let AuthService = AuthService_1 = class AuthService {
                 email: admin.email,
                 sub: admin._id.toString(),
                 role: 'admin',
+                tv: admin.tokenVersion ?? 0,
             });
             return {
                 token,
@@ -275,6 +277,60 @@ let AuthService = AuthService_1 = class AuthService {
         await user.save();
         return { message: 'Password reset successful' };
     }
+    async adminForgotPassword(dto) {
+        const generic = { message: 'If that email exists, a reset link has been sent.' };
+        const admin = await this.adminModel.findOne({ email: dto.email.toLowerCase() }).exec();
+        if (!admin)
+            return generic;
+        const rawToken = crypto.randomBytes(32).toString('hex');
+        admin.passwordResetToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+        admin.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
+        await admin.save();
+        const dashboardUrl = (this.configService.get('ADMIN_DASHBOARD_URL') ??
+            (process.env.NODE_ENV === 'production' ? 'https://admin.magnifycreation.lk' : 'http://localhost:3001')).replace(/\/+$/, '');
+        const resetLink = `${dashboardUrl}/reset-password?token=${rawToken}`;
+        try {
+            await this.mailService.sendMail({
+                to: admin.email,
+                subject: 'Reset your Magnify admin password',
+                text: `We received a request to reset your Magnify admin password.\n\n` +
+                    `Use this link (valid for 15 minutes, works only once):\n\n${resetLink}\n\n` +
+                    `If you did not request this, you can ignore this email.`,
+                html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
+            <h2 style="color:#002B73;margin-bottom:8px">Magnify - Admin password reset</h2>
+            <p style="color:#434652">Click the button below to set a new password. The link is valid for 15 minutes and can be used only once.</p>
+            <p style="margin:24px 0">
+              <a href="${resetLink}" style="background:#002B73;color:#ffffff;padding:12px 24px;border-radius:4px;text-decoration:none;display:inline-block">Reset your password</a>
+            </p>
+            <p style="font-size:13px;color:#9CA3AF">Or paste this link into your browser:<br/><span style="word-break:break-all;color:#434652">${resetLink}</span></p>
+            <p style="font-size:12px;color:#9CA3AF">If you did not request this, you can safely ignore this email.</p>
+          </div>`,
+            });
+        }
+        catch {
+            admin.passwordResetToken = undefined;
+            admin.passwordResetExpires = undefined;
+            await admin.save();
+            throw new common_1.BadRequestException('Unable to send reset email right now');
+        }
+        return generic;
+    }
+    async adminResetPassword(dto) {
+        (0, password_1.assertStrongPassword)(dto.newPassword);
+        const hashed = crypto.createHash('sha256').update(dto.token).digest('hex');
+        const admin = await this.adminModel.findOne({ passwordResetToken: hashed }).exec();
+        if (!admin || !admin.passwordResetExpires || admin.passwordResetExpires < new Date()) {
+            throw new common_1.BadRequestException('This reset link is invalid or has expired');
+        }
+        admin.password = await bcrypt.hash(dto.newPassword, 10);
+        admin.passwordChangedAt = new Date();
+        admin.tokenVersion = (admin.tokenVersion ?? 0) + 1;
+        admin.passwordResetToken = undefined;
+        admin.passwordResetExpires = undefined;
+        await admin.save();
+        return { message: 'Password reset successful. You can sign in with your new password.' };
+    }
     serializeProfile(user) {
         return {
             id: user._id,
@@ -290,6 +346,7 @@ let AuthService = AuthService_1 = class AuthService {
             customerAddress: user.customerAddress || '',
             customerId: user.customerId || '',
             createdAt: user.createdAt,
+            passwordChangedAt: user.passwordChangedAt ?? null,
         };
     }
     async getProfile(userId, role) {
@@ -315,6 +372,7 @@ let AuthService = AuthService_1 = class AuthService {
                 throw new common_1.ConflictException('Email already in use');
             }
         }
+        let newAdminToken;
         if (dto.newPassword) {
             if (!dto.currentPassword) {
                 throw new common_1.BadRequestException('Current password is required to set a new password');
@@ -323,10 +381,21 @@ let AuthService = AuthService_1 = class AuthService {
             if (!passwordValid) {
                 throw new common_1.BadRequestException('Current password is incorrect');
             }
+            if (isAdmin)
+                (0, password_1.assertStrongPassword)(dto.newPassword);
             const hashed = await bcrypt.hash(dto.newPassword, 10);
             if (isAdmin) {
-                user.password = hashed;
-                await user.save();
+                const adminDoc = user;
+                adminDoc.password = hashed;
+                adminDoc.passwordChangedAt = new Date();
+                adminDoc.tokenVersion = (adminDoc.tokenVersion ?? 0) + 1;
+                await adminDoc.save();
+                newAdminToken = this.jwtService.sign({
+                    email: adminDoc.email,
+                    sub: adminDoc._id.toString(),
+                    role: 'admin',
+                    tv: adminDoc.tokenVersion,
+                });
             }
             else {
                 await this.usersService.updatePassword(userId, hashed);
@@ -366,6 +435,7 @@ let AuthService = AuthService_1 = class AuthService {
         return {
             message: 'Profile updated successfully',
             user: this.serializeProfile(updated),
+            ...(newAdminToken ? { token: newAdminToken, access_token: newAdminToken } : {}),
         };
     }
     async uploadAvatar(userId, file, role) {

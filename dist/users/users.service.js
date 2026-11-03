@@ -292,6 +292,15 @@ let UsersService = class UsersService {
         const total = allUsers.length;
         const skip = (page - 1) * limit;
         const pageUsers = allUsers.slice(skip, skip + limit);
+        for (const u of pageUsers) {
+            if (!u.customerId) {
+                try {
+                    u.customerId = await this.generateAndAssignCustomerId(u._id.toString());
+                }
+                catch {
+                }
+            }
+        }
         const stats = await this.orderStatsByEmail(pageUsers.map((u) => u.email));
         const data = pageUsers.map((u) => this.serializeCustomer(u, stats.get(String(u.email ?? '').toLowerCase())));
         return {
@@ -396,8 +405,8 @@ let UsersService = class UsersService {
         return this.serializeCustomer(fresh);
     }
     async updateFromOrder(order) {
-        const email = order.email.trim().toLowerCase();
         const phoneNumber = this.normalisePhone(order.phone);
+        const email = (order.email ?? '').trim().toLowerCase() || `${phoneNumber}${UsersService_1.NO_EMAIL_DOMAIN}`;
         const user = await this.findByEmail(email);
         if (user) {
             const fields = { phoneNumber };
@@ -407,16 +416,32 @@ let UsersService = class UsersService {
                 fields.fullName = order.customerName.trim();
             }
             const updated = await this.updateCustomerFields(user._id.toString(), fields);
+            if (!user.customerId) {
+                await this.assignOrderCustomerId(user._id.toString(), order.customerId);
+                return this.serializeCustomer(await this.findById(user._id.toString()));
+            }
             return this.serializeCustomer(updated);
         }
         const randomPassword = crypto.randomUUID();
-        await this.create(email, randomPassword, 'user', order.customerName.trim(), {
+        const created = await this.create(email, randomPassword, 'user', order.customerName.trim(), {
             phoneNumber,
             customerAddress: order.shippingAddress.trim(),
             isActive: true,
             ...(order.manual ? { registrationType: 'manual', emailVerified: false } : {}),
         });
+        await this.assignOrderCustomerId(created._id.toString(), order.customerId);
         return null;
+    }
+    async assignOrderCustomerId(userId, wanted) {
+        const id = String(wanted ?? '').replace(/^#+/, '').trim().toUpperCase();
+        if (/^CL-\d+$/.test(id)) {
+            const clash = await this.userModel.findOne({ customerId: id }).exec();
+            if (!clash) {
+                await this.userModel.updateOne({ _id: userId }, { $set: { customerId: id } }).exec();
+                return;
+            }
+        }
+        await this.generateAndAssignCustomerId(userId);
     }
 };
 exports.UsersService = UsersService;

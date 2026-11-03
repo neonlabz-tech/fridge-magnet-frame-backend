@@ -53,7 +53,22 @@ const mongoose_2 = require("mongoose");
 const bcrypt = __importStar(require("bcrypt"));
 const team_schema_1 = require("./schemas/team.schema");
 const clean_json_1 = require("../common/utils/clean-json");
+const password_1 = require("../common/utils/password");
 const RESERVED_USERNAMES = ['admin'];
+function cleanPermissions(input) {
+    const permissions = {};
+    for (const key of team_schema_1.PERMISSION_KEYS) {
+        const legacy = key.includes('#') ? key.split('#')[0] : key;
+        const raw = input?.[key] ?? input?.[legacy];
+        const list = Array.isArray(raw) ? raw.map(String) : [];
+        const actions = team_schema_1.PERMISSION_ACTIONS.filter((a) => list.includes(a));
+        if (actions.length && actions.includes('view'))
+            permissions[key] = [...actions];
+    }
+    const pages = [...new Set(Object.keys(permissions).map((k) => k.split('#')[0]))];
+    return { permissions, pages };
+}
+const fullPermissions = () => Object.fromEntries(team_schema_1.PERMISSION_KEYS.map((h) => [h, [...team_schema_1.PERMISSION_ACTIONS]]));
 const rolePrefix = (role) => {
     const words = role.trim().split(/\s+/).filter(Boolean);
     const raw = words.length > 1 ? words.map((w) => w[0]).join('').slice(0, 3) : (words[0] ?? 'US').slice(0, 2);
@@ -66,13 +81,14 @@ let TeamService = class TeamService {
         this.jwtService = jwtService;
     }
     async ensureDefaultRole() {
-        if (await this.roleModel.exists({ name: team_schema_1.DEFAULT_ROLE_NAME }))
+        if ((await this.roleModel.estimatedDocumentCount()) > 0)
             return;
         const ids = (await this.roleModel.find({}, 'id').exec()).map((r) => r.id);
         await this.roleModel.create({
             id: (0, clean_json_1.nextSequenceId)(ids, 'ROLE-', 3),
             name: team_schema_1.DEFAULT_ROLE_NAME,
             pages: [...team_schema_1.PAGE_HREFS],
+            permissions: fullPermissions(),
         });
     }
     async findRoles() {
@@ -92,10 +108,14 @@ let TeamService = class TeamService {
             throw new common_1.ConflictException('A role with this name already exists');
         }
         const ids = (await this.roleModel.find({}, 'id').exec()).map((r) => r.id);
+        const viewOnly = Object.fromEntries((dto.pages ?? []).map((h) => [h, ['view']]));
+        const cleaned = cleanPermissions(dto.permissions ?? viewOnly);
         const role = await this.roleModel.create({
             id: (0, clean_json_1.nextSequenceId)(ids, 'ROLE-', 3),
             name,
-            pages: dto.pages ?? [],
+            pages: cleaned.pages,
+            permissions: cleaned.permissions,
+            ...(dto.widgets ? { widgets: dto.widgets } : {}),
         });
         return { message: 'Role created successfully', data: role };
     }
@@ -111,8 +131,17 @@ let TeamService = class TeamService {
             }
             role.name = name;
         }
-        if (dto.pages !== undefined)
+        if (dto.permissions !== undefined) {
+            const cleaned = cleanPermissions(dto.permissions);
+            role.permissions = cleaned.permissions;
+            role.pages = cleaned.pages;
+            role.markModified('permissions');
+        }
+        else if (dto.pages !== undefined) {
             role.pages = dto.pages;
+        }
+        if (dto.widgets !== undefined)
+            role.widgets = dto.widgets;
         await role.save();
         if (role.name !== previousName) {
             await this.memberModel.updateMany({ role: previousName }, { $set: { role: role.name } }).exec();
@@ -193,6 +222,9 @@ let TeamService = class TeamService {
             status: 'Active',
             username,
             passwordHash: await bcrypt.hash(dto.password, 10),
+            passwordChangedAt: new Date(),
+            mustChangePassword: true,
+            tokenVersion: 0,
         });
         return { message: 'User created successfully', data: member };
     }
@@ -215,8 +247,12 @@ let TeamService = class TeamService {
             member.status = dto.status;
         member.username = username;
         member.email = email;
-        if (dto.password)
+        if (dto.password) {
             member.passwordHash = await bcrypt.hash(dto.password, 10);
+            member.passwordChangedAt = new Date();
+            member.mustChangePassword = true;
+            member.tokenVersion = (member.tokenVersion ?? 0) + 1;
+        }
         await member.save();
         return { message: 'User updated successfully', data: member };
     }
@@ -225,9 +261,57 @@ let TeamService = class TeamService {
     }
     async resetPassword(id, password) {
         const member = await this.findMember(id);
-        member.passwordHash = await bcrypt.hash(password, 10);
+        const temporaryPassword = password || (0, password_1.generateTempPassword)();
+        member.passwordHash = await bcrypt.hash(temporaryPassword, 10);
+        member.passwordChangedAt = new Date();
+        member.mustChangePassword = true;
+        member.tokenVersion = (member.tokenVersion ?? 0) + 1;
         await member.save();
-        return { message: 'Password reset successfully', data: member };
+        return { message: 'Password reset successfully', data: member, temporaryPassword };
+    }
+    signToken(member) {
+        return this.jwtService.sign({
+            sub: member._id.toString(),
+            email: member.email,
+            username: member.username,
+            role: 'member',
+            tv: member.tokenVersion ?? 0,
+        });
+    }
+    async changeOwnPassword(memberId, dto) {
+        const member = await this.memberModel.findById(memberId).exec();
+        if (!member || member.status !== 'Active')
+            throw new common_1.UnauthorizedException();
+        if (dto.newPassword !== dto.confirmPassword) {
+            throw new common_1.BadRequestException('New password and confirmation do not match');
+        }
+        (0, password_1.assertStrongPassword)(dto.newPassword);
+        if (!(await bcrypt.compare(dto.currentPassword, member.passwordHash))) {
+            throw new common_1.BadRequestException('Current password is incorrect');
+        }
+        if (dto.newPassword === dto.currentPassword) {
+            throw new common_1.BadRequestException('New password must be different from the current password');
+        }
+        member.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+        member.passwordChangedAt = new Date();
+        member.mustChangePassword = false;
+        member.tokenVersion = (member.tokenVersion ?? 0) + 1;
+        await member.save();
+        const token = this.signToken(member);
+        return { message: 'Password changed successfully', token, access_token: token };
+    }
+    async me(memberId) {
+        const member = await this.memberModel.findById(memberId).exec();
+        if (!member || member.status !== 'Active')
+            throw new common_1.UnauthorizedException();
+        return {
+            data: {
+                id: member.id,
+                username: member.username,
+                mustChangePassword: Boolean(member.mustChangePassword),
+                passwordChangedAt: member.passwordChangedAt ?? null,
+            },
+        };
     }
     async removeMember(id) {
         const member = await this.memberModel.findOneAndDelete({ id }).exec();
@@ -249,13 +333,9 @@ let TeamService = class TeamService {
         if (!member || !valid || member.status !== 'Active') {
             throw new common_1.UnauthorizedException('Username or password is incorrect, or this account is inactive.');
         }
-        const token = this.jwtService.sign({
-            sub: member._id.toString(),
-            email: member.email,
-            username: member.username,
-            role: 'member',
-        });
+        const token = this.signToken(member);
         return {
+            mustChangePassword: Boolean(member.mustChangePassword),
             token,
             access_token: token,
             session: {
