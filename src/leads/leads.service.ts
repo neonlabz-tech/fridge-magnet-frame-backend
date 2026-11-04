@@ -81,32 +81,54 @@ export class LeadsService {
     return String(p ?? '').replace(/\D/g, '');
   }
 
-  /** A phone number can belong to one lead only. */
+  /**
+   * A phone number can belong to one lead only, whoever added it.
+   * 0778945612, +94778945612 and 94778945612 count as the same number (last 9 digits).
+   */
   private async assertPhoneFree(phone: string | undefined, exceptId?: string) {
     const d = this.digits(phone);
     if (!d) return;
     const clash = await this.model
-      .findOne({ phone: d, ...(exceptId ? { id: { $ne: exceptId } } : {}) }, 'id')
+      .findOne(
+        { phone: d.length >= 9 ? { $regex: `${d.slice(-9)}$` } : d, ...(exceptId ? { id: { $ne: exceptId } } : {}) },
+        'id',
+      )
       .exec();
     if (clash) {
-      throw new BadRequestException(`This phone number is already uploaded in lead ${clash.id}.`);
+      throw new BadRequestException(`This phone number is already added in lead ${clash.id}.`);
     }
+  }
+
+  private idNumber(id: string) {
+    return Number(String(id).replace(/\D/g, '')) || 0;
   }
 
   async create(dto: CreateLeadDto) {
     await this.assertPhoneFree(dto.phone);
-    const ids = (await this.model.find({}, 'id').exec()).map((l) => l.id);
-    const id = dto.id && !ids.includes(dto.id) ? dto.id : nextSequenceId(ids, 'ML', 3);
     const { actor, ...fields } = dto;
     void actor;
 
-    const lead = await this.model.create({
-      ...fields,
-      phone: this.digits(fields.phone),
-      id,
-      dateAdded: dto.dateAdded ?? new Date().toISOString(),
-    });
-    return { message: 'Lead created successfully', data: lead };
+    // The lead ID is always the next number in the series (ML001, ML002, ...). An ID sent by a
+    // browser is only used when it is free and is not ahead of the series; if two people save at
+    // the same moment, the loser simply takes the next number.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const ids = (await this.model.find({}, 'id').exec()).map((l) => l.id);
+      const next = nextSequenceId(ids, 'ML', 3);
+      const id = dto.id && !ids.includes(dto.id) && this.idNumber(dto.id) <= this.idNumber(next) ? dto.id : next;
+      try {
+        const lead = await this.model.create({
+          ...fields,
+          phone: this.digits(fields.phone),
+          id,
+          dateAdded: dto.dateAdded ?? new Date().toISOString(),
+        });
+        return { message: 'Lead created successfully', data: lead };
+      } catch (e) {
+        if ((e as { code?: number }).code === 11000 && attempt < 4) continue; // ID taken in the meantime
+        throw e;
+      }
+    }
+    throw new BadRequestException('Could not create the lead. Please try again.');
   }
 
   async importMany(dto: ImportLeadsDto) {

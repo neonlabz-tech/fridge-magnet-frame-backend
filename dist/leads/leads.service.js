@@ -69,25 +69,39 @@ let LeadsService = class LeadsService {
         if (!d)
             return;
         const clash = await this.model
-            .findOne({ phone: d, ...(exceptId ? { id: { $ne: exceptId } } : {}) }, 'id')
+            .findOne({ phone: d.length >= 9 ? { $regex: `${d.slice(-9)}$` } : d, ...(exceptId ? { id: { $ne: exceptId } } : {}) }, 'id')
             .exec();
         if (clash) {
-            throw new common_1.BadRequestException(`This phone number is already uploaded in lead ${clash.id}.`);
+            throw new common_1.BadRequestException(`This phone number is already added in lead ${clash.id}.`);
         }
+    }
+    idNumber(id) {
+        return Number(String(id).replace(/\D/g, '')) || 0;
     }
     async create(dto) {
         await this.assertPhoneFree(dto.phone);
-        const ids = (await this.model.find({}, 'id').exec()).map((l) => l.id);
-        const id = dto.id && !ids.includes(dto.id) ? dto.id : (0, clean_json_1.nextSequenceId)(ids, 'ML', 3);
         const { actor, ...fields } = dto;
         void actor;
-        const lead = await this.model.create({
-            ...fields,
-            phone: this.digits(fields.phone),
-            id,
-            dateAdded: dto.dateAdded ?? new Date().toISOString(),
-        });
-        return { message: 'Lead created successfully', data: lead };
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            const ids = (await this.model.find({}, 'id').exec()).map((l) => l.id);
+            const next = (0, clean_json_1.nextSequenceId)(ids, 'ML', 3);
+            const id = dto.id && !ids.includes(dto.id) && this.idNumber(dto.id) <= this.idNumber(next) ? dto.id : next;
+            try {
+                const lead = await this.model.create({
+                    ...fields,
+                    phone: this.digits(fields.phone),
+                    id,
+                    dateAdded: dto.dateAdded ?? new Date().toISOString(),
+                });
+                return { message: 'Lead created successfully', data: lead };
+            }
+            catch (e) {
+                if (e.code === 11000 && attempt < 4)
+                    continue;
+                throw e;
+            }
+        }
+        throw new common_1.BadRequestException('Could not create the lead. Please try again.');
     }
     async importMany(dto) {
         const existing = await this.model.find({}, 'id phone').exec();
