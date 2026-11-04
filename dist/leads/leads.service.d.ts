@@ -29,6 +29,7 @@ export declare class LeadsService {
     }>;
     private digits;
     private assertPhoneFree;
+    private idNumber;
     create(dto: CreateLeadDto): Promise<{
         message: string;
         data: import("mongoose").Document<unknown, {}, LeadDocument, {}, import("mongoose").DefaultSchemaOptions> & Lead & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
