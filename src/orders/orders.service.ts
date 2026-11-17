@@ -13,6 +13,7 @@ import axios from 'axios';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
+import { Lead, LeadDocument } from '../leads/schemas/lead.schema';
 import { Delivery, DeliveryDocument } from '../deliveries/schemas/delivery.schema';
 import { CloudflareR2Service } from '../cloudflareR2/cloudflareR2.service';
 import {
@@ -48,6 +49,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     @InjectModel(Delivery.name)
     private deliveryModel: Model<DeliveryDocument>,
+
+    @InjectModel(Lead.name)
+    private leadModel: Model<LeadDocument>,
 
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
@@ -255,6 +259,39 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Manual clean-up from the dashboard. Only delivered orders. */
+  /**
+   * Keep the converted lead's sale history in step with its order:
+   * deleted order -> sale removed, cancelled -> sale kept but not counted, reopened -> counted again.
+   */
+  private async syncLeadSale(orderId: string, mode: 'remove' | 'cancel' | 'restore'): Promise<void> {
+    try {
+      const bare = String(orderId).replace(/^#+/, '');
+      const ids = [bare, `#${bare}`];
+      if (mode === 'remove') {
+        await this.leadModel
+          .updateMany({ 'sales.orderId': { $in: ids } }, { $pull: { sales: { orderId: { $in: ids } } } })
+          .exec();
+        await this.leadModel
+          .updateMany({ 'order.orderId': { $in: ids } }, { $unset: { order: '' } })
+          .exec();
+        return;
+      }
+      const flag = mode === 'cancel';
+      await this.leadModel
+        .updateMany(
+          { 'sales.orderId': { $in: ids } },
+          { $set: { 'sales.$[s].canceled': flag } },
+          { arrayFilters: [{ 's.orderId': { $in: ids } }] },
+        )
+        .exec();
+      await this.leadModel
+        .updateMany({ 'order.orderId': { $in: ids } }, { $set: { 'order.canceled': flag } })
+        .exec();
+    } catch (err) {
+      this.logger.warn(`[Orders] Lead sale sync failed for ${orderId}: ${err}`);
+    }
+  }
+
   async deleteCustomerImages(id: string): Promise<any> {
     let order: OrderDocument | null = null;
     if (Types.ObjectId.isValid(id)) order = await this.orderModel.findById(id).exec();
@@ -970,6 +1007,11 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     await order.save();
     await this.syncOrderIncome(order.toObject());
+    if (previousStatus !== 'CANCELED' && nextStatus === 'CANCELED') {
+      await this.syncLeadSale(order.orderId, 'cancel');
+    } else if (previousStatus === 'CANCELED' && nextStatus !== 'CANCELED') {
+      await this.syncLeadSale(order.orderId, 'restore');
+    }
 
     const plainOrder = order.toObject();
 
@@ -1079,6 +1121,8 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     await this.transactionModel
       .deleteOne({ id: this.incomeTxId(order.orderId) })
       .exec();
+
+    await this.syncLeadSale(order.orderId, 'remove');
 
     // Remove the delivery record(s) of this order as well.
     const bareId = String(order.orderId).replace(/^#/, '');

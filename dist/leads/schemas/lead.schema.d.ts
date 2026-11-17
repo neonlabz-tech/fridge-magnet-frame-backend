@@ -27,6 +27,9 @@ export interface LeadOrderInfo {
     address: string;
     phone: string;
     convertedAt: string;
+    magnets?: number;
+    orderId?: string;
+    canceled?: boolean;
 }
 export declare class Lead {
     id: string;
