@@ -30,9 +30,10 @@ export class LeadsController {
     @Query('owner') owner?: string,
     @Query('status') status?: string,
     @Query('source') source?: string,
+    @Query('type') type?: string,
     @Query('search') search?: string,
   ) {
-    return this.leadsService.findAll({ owner, status, source, search });
+    return this.leadsService.findAll({ owner, status, source, type, search });
   }
 
   @Get('targets')

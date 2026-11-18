@@ -48,6 +48,8 @@ let LeadsService = class LeadsService {
             filter.status = q.status;
         if (q.source)
             filter.source = q.source;
+        if (q.type)
+            filter.type = q.type;
         if (q.search?.trim()) {
             const rx = new RegExp((0, clean_json_1.escapeRegex)(q.search.trim()), 'i');
             filter.$or = [{ id: rx }, { business: rx }, { phone: rx }, { email: rx }];

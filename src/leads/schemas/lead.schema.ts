@@ -65,6 +65,9 @@ export class Lead {
   @Prop({ default: 'Other' })
   source!: string;
 
+  @Prop({ default: 'Lead' })
+  type!: string;
+
   @Prop({ default: 'Not Contacted' })
   callStatus!: string;
 

@@ -48,6 +48,10 @@ __decorate([
     __metadata("design:type", String)
 ], Lead.prototype, "source", void 0);
 __decorate([
+    (0, mongoose_1.Prop)({ default: 'Lead' }),
+    __metadata("design:type", String)
+], Lead.prototype, "type", void 0);
+__decorate([
     (0, mongoose_1.Prop)({ default: 'Not Contacted' }),
     __metadata("design:type", String)
 ], Lead.prototype, "callStatus", void 0);
