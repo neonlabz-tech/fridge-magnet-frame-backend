@@ -40,6 +40,11 @@ export interface LeadOrderInfo {
   address: string;
   phone: string;
   convertedAt: string;
+  magnets?: number;
+  /** Business id of the order this sale came from, so it can be removed / cancelled with it. */
+  orderId?: string;
+  /** True while the linked order is cancelled — kept for history but not counted. */
+  canceled?: boolean;
 }
 
 @Schema({ timestamps: true, toJSON: cleanJson() })
@@ -59,6 +64,9 @@ export class Lead {
 
   @Prop({ default: 'Other' })
   source!: string;
+
+  @Prop({ default: 'Lead' })
+  type!: string;
 
   @Prop({ default: 'Not Contacted' })
   callStatus!: string;

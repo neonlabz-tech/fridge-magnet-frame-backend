@@ -26,6 +26,7 @@ export interface LeadQuery {
   owner?: string;
   status?: string;
   source?: string;
+  type?: string;
   search?: string;
 }
 
@@ -62,6 +63,7 @@ export class LeadsService {
     if (q.owner !== undefined) filter.owner = q.owner;
     if (q.status) filter.status = q.status;
     if (q.source) filter.source = q.source;
+    if (q.type) filter.type = q.type;
     if (q.search?.trim()) {
       const rx = new RegExp(escapeRegex(q.search.trim()), 'i');
       filter.$or = [{ id: rx }, { business: rx }, { phone: rx }, { email: rx }];

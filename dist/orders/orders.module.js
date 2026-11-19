@@ -18,6 +18,7 @@ const mail_module_1 = require("../mail/mail.module");
 const pdf_generator_service_1 = require("./services/pdf-generator.service");
 const cloudflareR2_module_1 = require("../cloudflareR2/cloudflareR2.module");
 const delivery_schema_1 = require("../deliveries/schemas/delivery.schema");
+const lead_schema_1 = require("../leads/schemas/lead.schema");
 const transaction_schema_1 = require("../finance/schemas/transaction.schema");
 let OrdersModule = class OrdersModule {
 };
@@ -33,6 +34,7 @@ exports.OrdersModule = OrdersModule = __decorate([
                 { name: product_schema_1.Product.name, schema: product_schema_1.ProductSchema },
                 { name: transaction_schema_1.Transaction.name, schema: transaction_schema_1.TransactionSchema },
                 { name: delivery_schema_1.Delivery.name, schema: delivery_schema_1.DeliverySchema },
+                { name: lead_schema_1.Lead.name, schema: lead_schema_1.LeadSchema },
             ]),
         ],
         controllers: [orders_controller_1.OrdersController],

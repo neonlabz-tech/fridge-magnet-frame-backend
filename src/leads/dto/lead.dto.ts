@@ -39,6 +39,10 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsString()
   callStatus?: string;
 
   @IsOptional()
@@ -121,6 +125,10 @@ export class UpdateLeadDto {
   @IsOptional()
   @IsString()
   source?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
 
   @IsOptional()
   @IsString()

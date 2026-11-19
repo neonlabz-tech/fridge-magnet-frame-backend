@@ -3,7 +3,7 @@ import { AddFollowUpDto, ConvertLeadDto, CreateLeadDto, ImportLeadsDto, Reassign
 export declare class LeadsController {
     private readonly leadsService;
     constructor(leadsService: LeadsService);
-    findAll(owner?: string, status?: string, source?: string, search?: string): Promise<{
+    findAll(owner?: string, status?: string, source?: string, type?: string, search?: string): Promise<{
         data: (import("mongoose").Document<unknown, {}, import("./schemas/lead.schema").LeadDocument, {}, import("mongoose").DefaultSchemaOptions> & import("./schemas/lead.schema").Lead & import("mongoose").Document<import("mongoose").Types.ObjectId, any, any, Record<string, any>, {}> & Required<{
             _id: import("mongoose").Types.ObjectId;
         }> & {

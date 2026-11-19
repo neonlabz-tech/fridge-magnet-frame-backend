@@ -22,6 +22,7 @@ const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const axios_1 = __importDefault(require("axios"));
 const order_schema_1 = require("./schemas/order.schema");
+const lead_schema_1 = require("../leads/schemas/lead.schema");
 const delivery_schema_1 = require("../deliveries/schemas/delivery.schema");
 const cloudflareR2_service_1 = require("../cloudflareR2/cloudflareR2.service");
 const transaction_schema_1 = require("../finance/schemas/transaction.schema");
@@ -30,11 +31,12 @@ const users_service_1 = require("../users/users.service");
 const mail_service_1 = require("../mail/mail.service");
 const pdf_generator_service_1 = require("./services/pdf-generator.service");
 let OrdersService = OrdersService_1 = class OrdersService {
-    constructor(orderModel, productModel, transactionModel, deliveryModel, usersService, mailService, pdfGeneratorService, cloudflareR2Service) {
+    constructor(orderModel, productModel, transactionModel, deliveryModel, leadModel, usersService, mailService, pdfGeneratorService, cloudflareR2Service) {
         this.orderModel = orderModel;
         this.productModel = productModel;
         this.transactionModel = transactionModel;
         this.deliveryModel = deliveryModel;
+        this.leadModel = leadModel;
         this.usersService = usersService;
         this.mailService = mailService;
         this.pdfGeneratorService = pdfGeneratorService;
@@ -203,6 +205,31 @@ let OrdersService = OrdersService_1 = class OrdersService {
         }
         catch {
             throw new common_1.NotFoundException('Photo not found. It may have been deleted.');
+        }
+    }
+    async syncLeadSale(orderId, mode) {
+        try {
+            const bare = String(orderId).replace(/^#+/, '');
+            const ids = [bare, `#${bare}`];
+            if (mode === 'remove') {
+                await this.leadModel
+                    .updateMany({ 'sales.orderId': { $in: ids } }, { $pull: { sales: { orderId: { $in: ids } } } })
+                    .exec();
+                await this.leadModel
+                    .updateMany({ 'order.orderId': { $in: ids } }, { $unset: { order: '' } })
+                    .exec();
+                return;
+            }
+            const flag = mode === 'cancel';
+            await this.leadModel
+                .updateMany({ 'sales.orderId': { $in: ids } }, { $set: { 'sales.$[s].canceled': flag } }, { arrayFilters: [{ 's.orderId': { $in: ids } }] })
+                .exec();
+            await this.leadModel
+                .updateMany({ 'order.orderId': { $in: ids } }, { $set: { 'order.canceled': flag } })
+                .exec();
+        }
+        catch (err) {
+            this.logger.warn(`[Orders] Lead sale sync failed for ${orderId}: ${err}`);
         }
     }
     async deleteCustomerImages(id) {
@@ -684,6 +711,12 @@ let OrdersService = OrdersService_1 = class OrdersService {
             order.shippingAddress = dto.shippingAddress;
         await order.save();
         await this.syncOrderIncome(order.toObject());
+        if (previousStatus !== 'CANCELED' && nextStatus === 'CANCELED') {
+            await this.syncLeadSale(order.orderId, 'cancel');
+        }
+        else if (previousStatus === 'CANCELED' && nextStatus !== 'CANCELED') {
+            await this.syncLeadSale(order.orderId, 'restore');
+        }
         const plainOrder = order.toObject();
         if (!dto.sendEmailNotification) {
             const [enriched] = await this.attachItemSkus([
@@ -763,6 +796,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
         await this.transactionModel
             .deleteOne({ id: this.incomeTxId(order.orderId) })
             .exec();
+        await this.syncLeadSale(order.orderId, 'remove');
         const bareId = String(order.orderId).replace(/^#/, '');
         await this.deliveryModel
             .deleteMany({ orderId: { $in: [bareId, `#${bareId}`] } })
@@ -879,7 +913,9 @@ exports.OrdersService = OrdersService = OrdersService_1 = __decorate([
     __param(1, (0, mongoose_1.InjectModel)(product_schema_1.Product.name)),
     __param(2, (0, mongoose_1.InjectModel)(transaction_schema_1.Transaction.name)),
     __param(3, (0, mongoose_1.InjectModel)(delivery_schema_1.Delivery.name)),
+    __param(4, (0, mongoose_1.InjectModel)(lead_schema_1.Lead.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model,
         mongoose_2.Model,
         mongoose_2.Model,
         mongoose_2.Model,

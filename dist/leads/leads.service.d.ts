@@ -5,6 +5,7 @@ export interface LeadQuery {
     owner?: string;
     status?: string;
     source?: string;
+    type?: string;
     search?: string;
 }
 export declare class LeadsService {

@@ -20,8 +20,8 @@ let LeadsController = class LeadsController {
     constructor(leadsService) {
         this.leadsService = leadsService;
     }
-    findAll(owner, status, source, search) {
-        return this.leadsService.findAll({ owner, status, source, search });
+    findAll(owner, status, source, type, search) {
+        return this.leadsService.findAll({ owner, status, source, type, search });
     }
     findTargets() {
         return this.leadsService.findTargets();
@@ -75,9 +75,10 @@ __decorate([
     __param(0, (0, common_1.Query)('owner')),
     __param(1, (0, common_1.Query)('status')),
     __param(2, (0, common_1.Query)('source')),
-    __param(3, (0, common_1.Query)('search')),
+    __param(3, (0, common_1.Query)('type')),
+    __param(4, (0, common_1.Query)('search')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, String]),
+    __metadata("design:paramtypes", [String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], LeadsController.prototype, "findAll", null);
 __decorate([
