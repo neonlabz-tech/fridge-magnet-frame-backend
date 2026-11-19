@@ -4,6 +4,7 @@ export declare class CreateLeadDto {
     business: string;
     phone?: string;
     source?: string;
+    type?: string;
     callStatus?: string;
     result?: string;
     product?: string;
@@ -27,6 +28,7 @@ export declare class UpdateLeadDto {
     business?: string;
     phone?: string;
     source?: string;
+    type?: string;
     callStatus?: string;
     result?: string;
     product?: string;

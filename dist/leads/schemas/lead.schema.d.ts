@@ -27,6 +27,9 @@ export interface LeadOrderInfo {
     address: string;
     phone: string;
     convertedAt: string;
+    magnets?: number;
+    orderId?: string;
+    canceled?: boolean;
 }
 export declare class Lead {
     id: string;
@@ -34,6 +37,7 @@ export declare class Lead {
     business: string;
     phone: string;
     source: string;
+    type: string;
     callStatus: string;
     result: string;
     product: string;
@@ -75,6 +79,11 @@ export declare const LeadSchema: import("mongoose").Schema<Lead, import("mongoos
         __v: number;
     }> | undefined;
     source?: import("mongoose").SchemaDefinitionProperty<string, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
+        _id: import("mongoose").Types.ObjectId;
+    } & {
+        __v: number;
+    }> | undefined;
+    type?: import("mongoose").SchemaDefinitionProperty<string, Lead, Document<unknown, {}, Lead, {}, import("mongoose").DefaultSchemaOptions> & Lead & {
         _id: import("mongoose").Types.ObjectId;
     } & {
         __v: number;
